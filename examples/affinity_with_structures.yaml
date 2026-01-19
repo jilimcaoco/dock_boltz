@@ -1,0 +1,18 @@
+# Example: Affinity prediction with external 3D structure files
+# This shows how to provide your own PDB/MOL2 structures instead of generating them
+
+version: 1
+sequences:
+  - protein:
+      id: A
+      sequence: MVTPEGNVSLVDESLLVGVTDEDRAVRSAHQFYERLIGLWAPAVMEAAHELGVFAALAEAPADSGELARRLDCDARAMRVLLDALYAYDVIDRIHDTNGFRYLLSAEARECLLPGTLFSLVGKFMHDINVAWPAWRNLAEVVRHGARDTSGAESPNGIAQEDYESLVGGINFWAPPIVTTLSRKLRASGRSGDATASVLDVGCGTGLYSQLLLREFPRWTATGLDVERIATLANAQALRLGVEERFATRAGDFWRGGWGTGYDLVLFANIFHLQTPASAVRLMRHAAACLAPDGLVAVVDQIVDADREPKTPQDRFALLFAASMTNTGGGDAYTFQEYEEWFTAAGLQRIETLDTPMHRILLARRATEPSAVPEGQASENLYFQ
+      structure_path: /path/to/protein.pdb  # Your external protein structure
+      
+  - ligand:
+      id: B
+      smiles: 'N[C@@H](Cc1ccc(O)cc1)C(=O)O'
+      structure_path: /path/to/ligand.mol2  # Your external ligand structure (MOL2, SDF, or PDB)
+
+properties:
+  - affinity:
+      binder: B

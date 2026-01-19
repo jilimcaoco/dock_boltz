@@ -1,0 +1,3 @@
+Making the dockfiles directory /scratch/maom_root/maom99/limcaoco/limcaoco/10885146_7/dockfiles
+ln: failed to create symbolic link '/scratch/maom_root/maom99/limcaoco/limcaoco/10885146_7/dockfiles/./.': File exists
+done copying dockfiles

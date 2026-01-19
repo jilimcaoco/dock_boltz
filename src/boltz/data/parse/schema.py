@@ -1170,7 +1170,30 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
             cyclic = items[0][entity_type].get("cyclic", False)
 
-            # Parse a polymer
+            # Check if external structure file is provided for protein
+            structure_path = items[0][entity_type].get("structure_path", None)
+            parsed_structure = None
+            
+            if structure_path is not None and entity_type == "protein":
+                structure_path = Path(structure_path)
+                if not structure_path.exists():
+                    msg = f"Structure file not found: {structure_path}"
+                    raise ValueError(msg)
+                
+                # Load protein structure from PDB/mmCIF
+                if structure_path.suffix.lower() == ".pdb":
+                    click.echo(f"Loading protein structure from {structure_path}")
+                    parsed_structure = parse_pdb(structure_path)
+                elif structure_path.suffix.lower() in [".cif", ".mmcif"]:
+                    click.echo(f"Loading protein structure from {structure_path}")
+                    parsed_structure = parse_mmcif(structure_path)
+                else:
+                    msg = f"Unsupported protein structure format: {structure_path.suffix}. Use .pdb or .cif/.mmcif"
+                    raise ValueError(msg)
+                
+                click.echo(f"Loaded {len(parsed_structure.chains)} chain(s) from {structure_path}")
+
+            # Parse a polymer (creates residues with sequence info)
             parsed_chain = parse_polymer(
                 sequence=seq,
                 raw_sequence=raw_seq,
@@ -1180,6 +1203,36 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 cyclic=cyclic,
                 mol_dir=mol_dir,
             )
+            
+            # Override coordinates with external structure if provided
+            if parsed_structure is not None and len(parsed_structure.chains) > 0:
+                # For simplicity, use the first chain from the loaded structure
+                # In a production system, you might want to match by chain ID
+                external_chain = parsed_structure.chains[0]
+                
+                # Override coordinates atom by atom
+                # The parsed_chain.residues should match the external_chain.residues
+                if len(parsed_chain.residues) != len(external_chain.residues):
+                    msg = (
+                        f"Sequence length mismatch: FASTA has {len(parsed_chain.residues)} residues "
+                        f"but structure file has {len(external_chain.residues)} residues in first chain"
+                    )
+                    raise ValueError(msg)
+                
+                # Copy coordinates from external structure to parsed chain
+                for parsed_res, external_res in zip(parsed_chain.residues, external_chain.residues):
+                    # Match atoms by name
+                    external_atom_map = {atom.name: atom for atom in external_res.atoms}
+                    
+                    for parsed_atom in parsed_res.atoms:
+                        if parsed_atom.name in external_atom_map:
+                            # Override the coords with external coordinates
+                            external_atom = external_atom_map[parsed_atom.name]
+                            parsed_atom.coords = external_atom.coords
+                            parsed_atom.is_present = external_atom.is_present
+                        # If atom not found in external structure, keep default (0,0,0) and is_present=False
+                
+                click.echo(f"Loaded coordinates from external structure for {len(parsed_chain.residues)} residues")
 
         # Parse a non-polymer
         elif (entity_type == "ligand") and "ccd" in (items[0][entity_type]):
@@ -1239,8 +1292,41 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             if affinity:
                 seq = standardize(seq)
 
-            mol = AllChem.MolFromSmiles(seq)
-            mol = AllChem.AddHs(mol)
+            # Check if external structure file is provided
+            structure_path = items[0][entity_type].get("structure_path", None)
+            
+            if structure_path is not None:
+                # Load molecule from external structure file
+                structure_path = Path(structure_path)
+                if not structure_path.exists():
+                    msg = f"Structure file not found: {structure_path}"
+                    raise ValueError(msg)
+                
+                if structure_path.suffix.lower() == ".mol2":
+                    mol = Chem.MolFromMol2File(str(structure_path), removeHs=False)
+                elif structure_path.suffix.lower() in [".sdf", ".sd"]:
+                    supplier = Chem.SDMolSupplier(str(structure_path), removeHs=False)
+                    mol = supplier[0]
+                elif structure_path.suffix.lower() == ".pdb":
+                    mol = Chem.MolFromPDBFile(str(structure_path), removeHs=False)
+                else:
+                    msg = f"Unsupported ligand structure format: {structure_path.suffix}. Use .mol2, .sdf, or .pdb"
+                    raise ValueError(msg)
+                
+                if mol is None:
+                    msg = f"Failed to load molecule from {structure_path}"
+                    raise ValueError(msg)
+                
+                # Ensure molecule has explicit hydrogens
+                if mol.GetNumAtoms() == 0:
+                    msg = f"Loaded molecule from {structure_path} has no atoms"
+                    raise ValueError(msg)
+                    
+                click.echo(f"Loaded ligand structure from {structure_path} ({mol.GetNumAtoms()} atoms)")
+            else:
+                # Original behavior: generate from SMILES
+                mol = AllChem.MolFromSmiles(seq)
+                mol = AllChem.AddHs(mol)
 
             # Set atom names
             canonical_order = AllChem.CanonicalRankAtoms(mol)
@@ -1255,10 +1341,17 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                     raise ValueError(msg)
                 atom.SetProp("name", atom_name)
 
-            success = compute_3d_conformer(mol)
-            if not success:
-                msg = f"Failed to compute 3D conformer for {seq}"
-                raise ValueError(msg)
+            # Only generate 3D conformer if no structure file was provided
+            if structure_path is None:
+                success = compute_3d_conformer(mol)
+                if not success:
+                    msg = f"Failed to compute 3D conformer for {seq}"
+                    raise ValueError(msg)
+            else:
+                # Verify loaded molecule has coordinates
+                if mol.GetNumConformers() == 0:
+                    msg = f"Loaded molecule from {structure_path} has no conformer/coordinates"
+                    raise ValueError(msg)
 
             mol_no_h = AllChem.RemoveHs(mol, sanitize=False)
 
