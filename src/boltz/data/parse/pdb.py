@@ -10,7 +10,31 @@ def parse_pdb(
     moldir: Optional[str] = None,
     use_assembly: bool = True,
     compute_interfaces: bool = True,
+    override_first_chain_sequence: Optional[list[str]] = None,
 ) -> ParsedStructure:
+    """Parse a PDB file and delegate to mmCIF parser.
+    
+    Parameters
+    ----------
+    path : str
+        Path to the PDB file.
+    mols : dict, optional
+        Dictionary of molecules.
+    moldir : str, optional
+        Path to molecule directory.
+    use_assembly : bool
+        Whether to use assembly (default: True).
+    compute_interfaces : bool
+        Whether to compute interfaces (default: True).
+    override_first_chain_sequence : list[str], optional
+        Override the sequence for the first polymer chain.
+        Useful when the PDB lacks sequence info but you have it from YAML.
+    
+    Returns
+    -------
+    ParsedStructure
+        The parsed structure.
+    """
     with NamedTemporaryFile(suffix=".cif") as tmp_cif_file:
         tmp_cif_path = tmp_cif_file.name
         structure = gemmi.read_structure(str(path))
@@ -36,4 +60,5 @@ def parse_pdb(
             moldir=moldir,
             use_assembly=use_assembly,
             compute_interfaces=compute_interfaces,
+            override_first_chain_sequence=override_first_chain_sequence,
         )
