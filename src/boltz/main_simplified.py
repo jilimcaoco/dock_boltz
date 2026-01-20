@@ -182,13 +182,26 @@ def predict(
 
     # Initialize model
     logger.info("Initializing affinity predictor")
+    
+    # Prepare affinity_model_args with both pairformer and transformer args
+    token_s = hparams.get("token_s", 384)
+    token_z = hparams.get("token_z", 128)
+    affinity_model_args = hparams.get("affinity_model_args", {})
+    
+    # Ensure transformer_args exists in affinity_model_args
+    if "transformer_args" not in affinity_model_args:
+        affinity_model_args["transformer_args"] = {}
+    # Ensure transformer_args has token_s
+    if "token_s" not in affinity_model_args["transformer_args"]:
+        affinity_model_args["transformer_args"]["token_s"] = token_s
+    
     model = AffinityPredictor(
-        token_s=hparams.get("token_s", 384),
-        token_z=hparams.get("token_z", 128),
+        token_s=token_s,
+        token_z=token_z,
         embedder_args=hparams.get("embedder_args", {}),
         msa_args=hparams.get("msa_args", {}),
         pairformer_args=hparams.get("pairformer_args", {}),
-        affinity_model_args=hparams.get("affinity_model_args", {}),
+        affinity_model_args=affinity_model_args,
         affinity_ensemble=hparams.get("affinity_ensemble", False),
         affinity_mw_correction=hparams.get("affinity_mw_correction", True),
     )
