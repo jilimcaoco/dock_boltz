@@ -333,17 +333,16 @@ def generate_individual_yamls(
                 print(f"  Skipping: {pose_file.name}")
                 continue
         
-        # Create YAML config
+        # Create YAML config - wrap sequence as single list item
+        sequence = generate_yaml_single_pose(
+            protein_pdb=protein_pdb,
+            protein_seq=protein_seq,
+            ligand_smiles=ligand_smiles,
+            pose_file=pose_file,
+        )
         yaml_config = {
             "version": 1,
-            "sequences": [
-                generate_yaml_single_pose(
-                    protein_pdb=protein_pdb,
-                    protein_seq=protein_seq,
-                    ligand_smiles=ligand_smiles,
-                    pose_file=pose_file,
-                )
-            ],
+            "sequences": [sequence],  # Single dict with protein and ligand keys
         }
         
         # Write YAML using filename (without extension) as compound name
