@@ -382,7 +382,7 @@ def predict(
                 affinity_prob = batch_result["affinity_probability_binary"][i, 0]
                 writer.writerow([cid, f"{affinity_value:.4f}", f"{affinity_prob:.4f}"])
 
-    logger.info(f"Results saved to {output}. Total predictions: {sum(len(r['complex_id']) for r in results)}\")
+    logger.info(f"Results saved to {output}. Total predictions: {sum(len(r['complex_id']) for r in results)}")
 
 
 @cli.command()
