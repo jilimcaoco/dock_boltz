@@ -10,7 +10,62 @@ from tqdm import tqdm
 
 from boltz.data import const
 from boltz.data.pad import pad_dim
-from boltz.model.modules.confidence import lddt_dist
+
+
+def lddt_dist(
+    predicted_dmat: torch.Tensor,
+    true_dmat: torch.Tensor,
+    mask: torch.Tensor,
+    cutoff: float = 15.0,
+    per_atom: bool = False,
+) -> torch.Tensor:
+    """
+    Compute lDDT from distance matrices.
+    
+    Parameters
+    ----------
+    predicted_dmat : torch.Tensor
+        Predicted distance matrix
+    true_dmat : torch.Tensor
+        True distance matrix
+    mask : torch.Tensor
+        Pair mask
+    cutoff : float
+        Distance cutoff for inclusion
+    per_atom : bool
+        Return per-atom scores if True
+        
+    Returns
+    -------
+    torch.Tensor
+        lDDT score(s)
+    """
+    # Distance difference
+    dist_diff = torch.abs(predicted_dmat - true_dmat)
+    
+    # Apply cutoff mask
+    cutoff_mask = (true_dmat < cutoff).float() * mask
+    
+    # Count preserved distances at different thresholds
+    preserved_0_5 = ((dist_diff < 0.5).float() * cutoff_mask).sum(dim=-1)
+    preserved_1_0 = ((dist_diff < 1.0).float() * cutoff_mask).sum(dim=-1)
+    preserved_2_0 = ((dist_diff < 2.0).float() * cutoff_mask).sum(dim=-1)
+    preserved_4_0 = ((dist_diff < 4.0).float() * cutoff_mask).sum(dim=-1)
+    
+    # Count total distances
+    total = cutoff_mask.sum(dim=-1)
+    
+    # Avoid division by zero
+    total = torch.clamp(total, min=1.0)
+    
+    # lDDT score (average of 4 thresholds)
+    lddt = (preserved_0_5 + preserved_1_0 + preserved_2_0 + preserved_4_0) / (4.0 * total)
+    
+    if per_atom:
+        return lddt, total
+    else:
+        # Return mean lDDT across all atoms
+        return lddt.mean(dim=-1, keepdim=True), total.sum(dim=-1, keepdim=True)
 
 
 def load_molecules(moldir: str, molecules: list[str]) -> dict[str, Mol]:
