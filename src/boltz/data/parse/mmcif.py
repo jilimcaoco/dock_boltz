@@ -636,7 +636,18 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
             # Double check the match
             if res.name != res_name:
-                msg = "Alignment mismatch!"
+                logger.error(
+                    "Alignment mismatch at position j=%d, i=%d: structure has '%s' but sequence expects '%s'. "
+                    "Sequence preview: %r, Structure residue: %s %d",
+                    j,
+                    i,
+                    res.name,
+                    res_name,
+                    sequence[max(0, j-5):min(len(sequence), j+6)],
+                    res.name,
+                    res.seqid.num
+                )
+                msg = f"Alignment mismatch at position {j}: structure has '{res.name}' but sequence expects '{res_name}'"
                 raise ValueError(msg)
 
             # Increment polymer index

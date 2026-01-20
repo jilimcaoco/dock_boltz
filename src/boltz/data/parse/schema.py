@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
+import gemmi
 import numpy as np
 from Bio import Align
 from chembl_structure_pipeline.exclude_flag import exclude_flag
@@ -1207,6 +1208,72 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             # Extract sequence
             raw_seq = items[0][entity_type]["sequence"]
             entity_to_seq[entity_id] = raw_seq
+            
+            print(f"\n{'='*80}")
+            print(f"DEBUG: Processing entity {entity_id} ({entity_type})")
+            print(f"YAML sequence (length {len(raw_seq)}):")
+            print(f"  {raw_seq[:100]}{'...' if len(raw_seq) > 100 else ''}")
+
+            # Check if external structure file is provided for protein
+            structure_path = items[0][entity_type].get("structure_path", None)
+            parsed_structure = None
+            
+            if structure_path is not None and entity_type == "protein":
+                structure_path = Path(structure_path)
+                if not structure_path.exists():
+                    msg = f"Structure file not found: {structure_path}"
+                    raise ValueError(msg)
+                
+                # Load structure to extract actual sequence
+                click.echo(f"Loading protein structure from {structure_path}")
+                temp_structure = gemmi.read_structure(str(structure_path))
+                temp_structure.setup_entities()
+                
+                # Extract sequence from first polymer entity
+                structure_seq = None
+                for entity in temp_structure.entities:
+                    if entity.entity_type.name == "Polymer" and entity.polymer_type.name == "PeptideL":
+                        structure_seq = entity.full_sequence
+                        if structure_seq:
+                            # Convert gemmi entity sequence (list of 3-letter codes) to string
+                            structure_seq_str = "".join([
+                                const.prot_token_to_letter.get(gemmi.Entity.first_mon(code), "X")
+                                for code in structure_seq
+                            ])
+                            click.echo(f"  Extracted sequence from structure: {len(structure_seq_str)} residues")
+                            
+                            print(f"\nStructure sequence (length {len(structure_seq_str)}):")
+                            print(f"  {structure_seq_str[:100]}{'...' if len(structure_seq_str) > 100 else ''}")
+                            
+                            # Compare sequences
+                            if raw_seq != structure_seq_str:
+                                print(f"\n⚠️  SEQUENCE MISMATCH DETECTED:")
+                                print(f"  YAML length:      {len(raw_seq)}")
+                                print(f"  Structure length: {len(structure_seq_str)}")
+                                if len(raw_seq) == len(structure_seq_str):
+                                    # Find first difference
+                                    for i, (y, s) in enumerate(zip(raw_seq, structure_seq_str)):
+                                        if y != s:
+                                            print(f"  First diff at position {i}: YAML='{y}' vs Structure='{s}'")
+                                            print(f"    Context: ...{raw_seq[max(0,i-5):i+6]}...")
+                                            print(f"             ...{structure_seq_str[max(0,i-5):i+6]}...")
+                                            break
+                                print(f"  Using structure sequence for alignment")
+                            else:
+                                print(f"✓ Sequences match perfectly")
+                            
+                            # Override YAML sequence with structure sequence
+                            raw_seq = structure_seq_str
+                            entity_to_seq[entity_id] = raw_seq
+                        break
+                
+                if structure_seq is None:
+                    click.echo(f"  Warning: Could not extract sequence from {structure_path}, using YAML sequence")
+                    print(f"⚠️  Could not extract sequence from structure, using YAML sequence")
+            
+            print(f"Final sequence to use (length {len(raw_seq)}):")
+            print(f"  {raw_seq[:100]}{'...' if len(raw_seq) > 100 else ''}")
+            print(f"{'='*80}\n")
 
             # Convert sequence to tokens
             seq = [token_map.get(c, unk_token) for c in list(raw_seq)]
@@ -1219,19 +1286,15 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
             cyclic = items[0][entity_type].get("cyclic", False)
 
-            # Check if external structure file is provided for protein
-            structure_path = items[0][entity_type].get("structure_path", None)
-            parsed_structure = None
-            
+            # Now load full parsed structure if needed
             if structure_path is not None and entity_type == "protein":
-                structure_path = Path(structure_path)
+                # structure_path already exists and is a Path object from above
                 if not structure_path.exists():
                     msg = f"Structure file not found: {structure_path}"
                     raise ValueError(msg)
                 
                 # Load protein structure from PDB/mmCIF
                 if structure_path.suffix.lower() == ".pdb":
-                    click.echo(f"Loading protein structure from {structure_path}")
                     # Pass YAML-derived token list as override for structure parsing
                     # Note: mol_dir should always be provided by parse_yaml caller
                     parsed_structure = parse_pdb(
@@ -1241,7 +1304,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                         override_first_chain_sequence=seq
                     )
                 elif structure_path.suffix.lower() in [".cif", ".mmcif"]:
-                    click.echo(f"Loading protein structure from {structure_path}")
                     parsed_structure = parse_mmcif(
                         str(structure_path),
                         mols=ccd,
