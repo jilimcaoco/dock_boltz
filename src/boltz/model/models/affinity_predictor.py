@@ -134,19 +134,56 @@ class AffinityPredictor(nn.Module):
         self.pairformer_module = PairformerModule(token_s, token_z, **pairformer_args)
 
         # Affinity module(s)
+        # Default parameters for AffinityModule
+        default_affinity_pairformer_args = {
+            "num_blocks": 4,
+            "dropout": 0.25,
+            "pairwise_head_width": 32,
+            "pairwise_num_heads": 4,
+            "post_layer_norm": False,
+            "activation_checkpointing": False,
+        }
+        default_affinity_transformer_args = {
+            "token_s": token_s,
+            "num_blocks": 2,
+            "num_heads": 4,
+            "activation_checkpointing": False,
+        }
+        
         if self.affinity_ensemble:
             affinity_model_args1 = affinity_model_args1 or {}
             affinity_model_args2 = affinity_model_args2 or {}
+            
+            # Merge defaults with user-provided args
+            aff_pairformer_args1 = {**default_affinity_pairformer_args, **affinity_model_args1.pop("pairformer_args", {})}
+            aff_transformer_args1 = {**default_affinity_transformer_args, **affinity_model_args1.pop("transformer_args", {})}
+            aff_pairformer_args2 = {**default_affinity_pairformer_args, **affinity_model_args2.pop("pairformer_args", {})}
+            aff_transformer_args2 = {**default_affinity_transformer_args, **affinity_model_args2.pop("transformer_args", {})}
+            
             self.affinity_module1 = AffinityModule(
-                token_s, token_z, **affinity_model_args1
+                token_s, token_z, 
+                pairformer_args=aff_pairformer_args1,
+                transformer_args=aff_transformer_args1,
+                **affinity_model_args1
             )
             self.affinity_module2 = AffinityModule(
-                token_s, token_z, **affinity_model_args2
+                token_s, token_z,
+                pairformer_args=aff_pairformer_args2,
+                transformer_args=aff_transformer_args2,
+                **affinity_model_args2
             )
         else:
             affinity_model_args = affinity_model_args or {}
+            
+            # Merge defaults with user-provided args
+            aff_pairformer_args = {**default_affinity_pairformer_args, **affinity_model_args.pop("pairformer_args", {})}
+            aff_transformer_args = {**default_affinity_transformer_args, **affinity_model_args.pop("transformer_args", {})}
+            
             self.affinity_module = AffinityModule(
-                token_s, token_z, **affinity_model_args
+                token_s, token_z,
+                pairformer_args=aff_pairformer_args,
+                transformer_args=aff_transformer_args,
+                **affinity_model_args
             )
 
     def forward(
