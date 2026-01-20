@@ -1309,7 +1309,10 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
             # Build a 3-letter normalized sequence if not already derived from structure
             if normalized_seq_3l is None:
+                print(f"⚠️  WARNING: normalized_seq_3l is None, rebuilding from raw_seq (this should not happen if structure was loaded)")
                 normalized_seq_3l = [const.prot_letter_to_token.get(c, "UNK") for c in raw_seq]
+            
+            print(f"DEBUG: normalized_seq_3l (first 10): {normalized_seq_3l[:10] if normalized_seq_3l else 'None'}")
 
             # Apply modifications to the 3-letter sequence BEFORE tokenization
             for mod in items[0][entity_type].get("modifications", []):
@@ -1319,7 +1322,14 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                     normalized_seq_3l[idx] = code
 
             # Recompute 1-letter raw_seq from the normalized 3-letter sequence
-            raw_seq = "".join([const.prot_token_to_letter.get(code, "X") for code in normalized_seq_3l])
+            raw_seq_recomputed = "".join([const.prot_token_to_letter.get(code, "X") for code in normalized_seq_3l])
+            
+            if raw_seq != raw_seq_recomputed:
+                print(f"⚠️  WARNING: raw_seq changed after recomputation!")
+                print(f"  Original:   {raw_seq[:100]}")
+                print(f"  Recomputed: {raw_seq_recomputed[:100]}")
+            
+            raw_seq = raw_seq_recomputed
 
             # Now load full parsed structure if needed
             if structure_path is not None and entity_type == "protein":
@@ -1332,6 +1342,7 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 if structure_path.suffix.lower() == ".pdb":
                     # Pass normalized 3-letter sequence as override for structure parsing
                     # Note: mol_dir should always be provided by parse_yaml caller
+                    print(f"DEBUG: Passing override sequence to parse_pdb (first 10): {normalized_seq_3l[:10]}")
                     parsed_structure = parse_pdb(
                         str(structure_path),
                         mols=ccd,
