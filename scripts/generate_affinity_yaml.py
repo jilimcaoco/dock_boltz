@@ -173,20 +173,24 @@ def generate_yaml_single_pose(
     ligand_smiles: str,
     pose_file: Path,
     pose_idx: int = 0,
-) -> dict:
-    """Generate YAML sequence entry for a single pose."""
-    return {
-        "protein": {
-            "id": "A",
-            "sequence": protein_seq,
-            "structure_path": str(protein_pdb),
+) -> list[dict]:
+    """Generate YAML sequence entries (one per entity) for a single pose."""
+    return [
+        {
+            "protein": {
+                "id": "A",
+                "sequence": protein_seq,
+                "structure_path": str(protein_pdb),
+            }
         },
-        "ligand": {
-            "id": "B",
-            "smiles": ligand_smiles,
-            "structure_path": str(pose_file),
+        {
+            "ligand": {
+                "id": "B",
+                "smiles": ligand_smiles,
+                "structure_path": str(pose_file),
+            }
         },
-    }
+    ]
 
 
 def generate_batch_yaml(
@@ -357,7 +361,7 @@ def generate_individual_yamls(
                 continue
         
         # Create YAML config - wrap sequence as single list item
-        sequence = generate_yaml_single_pose(
+        sequence_entries = generate_yaml_single_pose(
             protein_pdb=protein_pdb,
             protein_seq=protein_seq,
             ligand_smiles=ligand_smiles,
@@ -365,7 +369,7 @@ def generate_individual_yamls(
         )
         yaml_config = {
             "version": 1,
-            "sequences": [sequence],  # Single dict with protein and ligand keys
+            "sequences": sequence_entries,  # List entries: protein and ligand at same level
         }
         
         # Write YAML using filename (without extension) as compound name

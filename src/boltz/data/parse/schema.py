@@ -1205,8 +1205,9 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             chain_type = const.chain_type_ids[entity_type.upper()]
             unk_token = const.unk_token[entity_type.upper()]
 
-            # Extract sequence
+            # Extract sequence (1-letter) and maintain a 3-letter normalized version
             raw_seq = items[0][entity_type]["sequence"]
+            normalized_seq_3l: list[str] | None = None
             entity_to_seq[entity_id] = raw_seq
             
             print(f"\n{'='*80}")
@@ -1236,7 +1237,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                         structure_seq = entity.full_sequence
                         if structure_seq:
                             # Preprocess: normalize non-standard residue codes
-                            # CYX (disulfide-bonded cysteine) -> CYS (standard cysteine)
                             normalized_seq = []
                             for code in structure_seq:
                                 first_mon = gemmi.Entity.first_mon(code)
@@ -1244,7 +1244,9 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                                     normalized_seq.append("CYS")
                                 else:
                                     normalized_seq.append(first_mon)
-                            
+
+                            normalized_seq_3l = normalized_seq
+
                             # Convert normalized 3-letter codes to 1-letter amino acids
                             structure_seq_str = "".join([
                                 const.prot_token_to_letter.get(code, "X")
@@ -1285,15 +1287,19 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             print(f"  {raw_seq[:100]}{'...' if len(raw_seq) > 100 else ''}")
             print(f"{'='*80}\n")
 
-            # Apply modifications BEFORE tokenization
-            raw_seq_list = list(raw_seq)
+            # Build a 3-letter normalized sequence if not already derived from structure
+            if normalized_seq_3l is None:
+                normalized_seq_3l = [const.prot_letter_to_token.get(c, "UNK") for c in raw_seq]
+
+            # Apply modifications to the 3-letter sequence BEFORE tokenization
             for mod in items[0][entity_type].get("modifications", []):
-                code = mod["ccd"]
+                code = mod["ccd"]  # expected to be a CCD/3-letter code
                 idx = mod["position"] - 1  # 1-indexed
-                if idx < len(raw_seq_list):
-                    raw_seq_list[idx] = code
-            
-            raw_seq = "".join(raw_seq_list)
+                if 0 <= idx < len(normalized_seq_3l):
+                    normalized_seq_3l[idx] = code
+
+            # Recompute 1-letter raw_seq from the normalized 3-letter sequence
+            raw_seq = "".join([const.prot_token_to_letter.get(code, "X") for code in normalized_seq_3l])
 
             # Now load full parsed structure if needed
             if structure_path is not None and entity_type == "protein":
@@ -1304,20 +1310,20 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 
                 # Load protein structure from PDB/mmCIF
                 if structure_path.suffix.lower() == ".pdb":
-                    # Pass raw 1-letter sequence (not tokenized) as override for structure parsing
+                    # Pass normalized 3-letter sequence as override for structure parsing
                     # Note: mol_dir should always be provided by parse_yaml caller
                     parsed_structure = parse_pdb(
                         str(structure_path),
                         mols=ccd,
                         moldir=str(mol_dir) if mol_dir else None,
-                        override_first_chain_sequence=raw_seq
+                        override_first_chain_sequence=normalized_seq_3l
                     )
                 elif structure_path.suffix.lower() in [".cif", ".mmcif"]:
                     parsed_structure = parse_mmcif(
                         str(structure_path),
                         mols=ccd,
                         moldir=str(mol_dir) if mol_dir else None,
-                        override_first_chain_sequence=raw_seq
+                        override_first_chain_sequence=normalized_seq_3l
                     )
                 else:
                     msg = f"Unsupported protein structure format: {structure_path.suffix}. Use .pdb or .cif/.mmcif"
@@ -1327,10 +1333,10 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
             # Convert sequence to tokens (for features)
             seq = [token_map.get(c, unk_token) for c in list(raw_seq)]
-            
+
             # Parse a polymer (creates residues with sequence info)
             parsed_chain = parse_polymer(
-                sequence=list(raw_seq),  # Pass as 1-letter code string converted to list
+                sequence=normalized_seq_3l,  # 3-letter codes for alignment
                 raw_sequence=raw_seq,
                 entity=entity_id,
                 chain_type=chain_type,
