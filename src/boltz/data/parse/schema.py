@@ -1040,6 +1040,19 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
         # Get sequence
         if entity_type in {"protein", "dna", "rna"}:
             seq = str(item[entity_type]["sequence"])
+            # Validate sequence content early to surface better errors
+            if seq.strip() in ("", "[]"):
+                logger.error(
+                    "Invalid/empty sequence for schema sequence[%d]: %r (entity=%s). Item: %r",
+                    seq_idx,
+                    seq,
+                    entity_type,
+                    item,
+                )
+                raise ValueError(
+                    f"Invalid or empty sequence for entity {entity_type} in schema sequence index {seq_idx}: {seq!r}. "
+                    "Please regenerate the YAML with a valid `sequence` field."
+                )
         elif entity_type == "ligand":
             assert "smiles" in item[entity_type] or "ccd" in item[entity_type]
             assert "smiles" not in item[entity_type] or "ccd" not in item[entity_type]
