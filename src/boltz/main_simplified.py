@@ -38,6 +38,42 @@ def get_cache_path() -> Path:
     return cache_dir
 
 
+def infer_embedder_args_from_state_dict(state_dict: dict) -> dict:
+    """Infer embedder_args from checkpoint state_dict dimensions.
+    
+    Parameters
+    ----------
+    state_dict : dict
+        Model state dict from checkpoint
+        
+    Returns
+    -------
+    dict
+        Inferred embedder arguments
+    """
+    embedder_args = {}
+    
+    # Infer atom_s from embed_atom_features weight shape
+    if "input_embedder.atom_encoder.embed_atom_features.weight" in state_dict:
+        atom_s = state_dict["input_embedder.atom_encoder.embed_atom_features.weight"].shape[0]
+        embedder_args["atom_s"] = atom_s
+        logger.debug(f"Inferred atom_s={atom_s} from checkpoint")
+    
+    # Infer atom_z from atom_encoder weights
+    if "input_embedder.atom_encoder.c_to_p_trans_k.1.weight" in state_dict:
+        atom_z = state_dict["input_embedder.atom_encoder.c_to_p_trans_k.1.weight"].shape[1]
+        embedder_args["atom_z"] = atom_z
+        logger.debug(f"Inferred atom_z={atom_z} from checkpoint")
+    
+    # Infer atom_encoder_depth from p_mlp layers
+    if "input_embedder.atom_encoder.p_mlp.1.weight" in state_dict:
+        # atom_encoder has p_mlp with multiple layers, estimate depth
+        embedder_args["atom_encoder_depth"] = 3
+        logger.debug(f"Set atom_encoder_depth=3 (estimated)")
+    
+    return embedder_args
+
+
 def download_checkpoint(
     urls: list[str],
     output_path: Path,
@@ -179,6 +215,11 @@ def predict(
 
     # Extract model args from checkpoint
     hparams = ckpt.get("hyper_parameters", {})
+    state_dict = ckpt.get("state_dict", {})
+    
+    # Log checkpoint structure for debugging
+    logger.debug(f"Checkpoint keys: {list(ckpt.keys())}")
+    logger.debug(f"Hyperparameters keys: {list(hparams.keys())}")
 
     # Initialize model
     logger.info("Initializing affinity predictor")
@@ -186,6 +227,14 @@ def predict(
     # Prepare affinity_model_args with both pairformer and transformer args
     token_s = hparams.get("token_s", 384)
     token_z = hparams.get("token_z", 128)
+    
+    # Extract embedder_args from checkpoint, or infer from state_dict
+    embedder_args = hparams.get("embedder_args", {})
+    if not embedder_args or "atom_s" not in embedder_args:
+        inferred_embedder_args = infer_embedder_args_from_state_dict(state_dict)
+        embedder_args = {**embedder_args, **inferred_embedder_args}
+        logger.info(f"Inferred embedder args from checkpoint: {inferred_embedder_args}")
+    
     affinity_model_args = hparams.get("affinity_model_args", {})
     
     # Ensure transformer_args exists in affinity_model_args
@@ -195,10 +244,13 @@ def predict(
     if "token_s" not in affinity_model_args["transformer_args"]:
         affinity_model_args["transformer_args"]["token_s"] = token_s
     
+    logger.debug(f"token_s={token_s}, token_z={token_z}")
+    logger.debug(f"embedder_args={embedder_args}")
+    
     model = AffinityPredictor(
         token_s=token_s,
         token_z=token_z,
-        embedder_args=hparams.get("embedder_args", {}),
+        embedder_args=embedder_args,
         msa_args=hparams.get("msa_args", {}),
         pairformer_args=hparams.get("pairformer_args", {}),
         affinity_model_args=affinity_model_args,
