@@ -641,9 +641,26 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
             )
             raise
 
+        # Normalize residue name from sequence as well
+        residue_normalization_map = {
+            "CYX": "CYS",  # Disulfide-bonded cysteine
+            "HID": "HIS",  # Histidine delta-protonated
+            "HIE": "HIS",  # Histidine epsilon-protonated
+            "HIP": "HIS",  # Histidine doubly protonated
+            "MSE": "MET",  # Selenomethionine (already handled below, but include for consistency)
+            "SEP": "SER",  # Phosphoserine
+            "TPO": "THR",  # Phosphothreonine
+            "PTR": "TYR",  # Phosphotyrosine
+        }
+        if res_name in residue_normalization_map:
+            res_name = residue_normalization_map[res_name]
+
         # Check if we have a match in the structure
         res = None
         name_to_atom = {}
+        
+        # Initialize normalized_res_name
+        normalized_res_name = res_name
 
         if match == "|":
             # Get pdb residue
@@ -652,16 +669,6 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
             # Normalize structure residue name (CYX -> CYS, HID/HIE/HIP -> HIS, etc.)
             normalized_res_name = res.name
-            residue_normalization_map = {
-                "CYX": "CYS",  # Disulfide-bonded cysteine
-                "HID": "HIS",  # Histidine delta-protonated
-                "HIE": "HIS",  # Histidine epsilon-protonated
-                "HIP": "HIS",  # Histidine doubly protonated
-                "MSE": "MET",  # Selenomethionine (already handled below, but include for consistency)
-                "SEP": "SER",  # Phosphoserine
-                "TPO": "THR",  # Phosphothreonine
-                "PTR": "TYR",  # Phosphotyrosine
-            }
             if normalized_res_name in residue_normalization_map:
                 normalized_res_name = residue_normalization_map[normalized_res_name]
 
