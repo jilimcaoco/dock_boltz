@@ -239,7 +239,7 @@ def generate_batch_yaml(
     
     # Generate YAML
     yaml_config = {
-        "version": 2,
+        "version": 1,
         "sequences": [],
     }
     
@@ -335,7 +335,7 @@ def generate_individual_yamls(
         
         # Create YAML config
         yaml_config = {
-            "version": 2,
+            "version": 1,
             "sequences": [
                 generate_yaml_single_pose(
                     protein_pdb=protein_pdb,
