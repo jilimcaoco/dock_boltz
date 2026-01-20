@@ -622,6 +622,13 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
     print(f"  Polymer residues (len={len(polymer_residues)}): {polymer_residues[:15]}...")
     print(f"  First polymer residue number: {polymer[0].seqid.num if len(polymer) > 0 else 'N/A'}")
     
+    print(f"\n{'='*80}")
+    print(f"FULL SEQUENCE TO ALIGN (input sequence parameter):")
+    print(f"  {sequence}")
+    print(f"\nFULL POLYMER RESIDUES (from structure):")
+    print(f"  {polymer_residues}")
+    print(f"{'='*80}\n")
+    
     result = gemmi.align_sequence_to_polymer(
         sequence,
         polymer,
@@ -685,23 +692,20 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
             # Double check the match
             if normalized_res_name != res_name:
-                logger.warning(
+                logger.error(
                     "Alignment mismatch at position j=%d, i=%d: structure has '%s' (normalized to '%s') but sequence expects '%s'. "
-                    "SAFE FALLBACK: Adopting structure residue '%s'. "
                     "Sequence preview: %r, Structure residue: %s %d",
                     j,
                     i,
                     res.name,
                     normalized_res_name,
                     res_name,
-                    normalized_res_name,
                     sequence[max(0, j-5):min(len(sequence), j+6)],
                     res.name,
                     res.seqid.num
                 )
-                print(f"⚠️  SAFE FALLBACK at position {j}: Expected '{res_name}' but structure has '{normalized_res_name}' - trusting structure")
-                # Trust the structure: override res_name with what's actually in the structure
-                res_name = normalized_res_name
+                msg = f"Alignment mismatch at position {j}: structure has '{res.name}' (normalized to '{normalized_res_name}') but sequence expects '{res_name}'"
+                raise ValueError(msg)
 
             # Increment polymer index
             i += 1
