@@ -1235,10 +1235,20 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                     if entity.entity_type.name == "Polymer" and entity.polymer_type.name == "PeptideL":
                         structure_seq = entity.full_sequence
                         if structure_seq:
-                            # Convert gemmi entity sequence (list of 3-letter codes) to string
+                            # Preprocess: normalize non-standard residue codes
+                            # CYX (disulfide-bonded cysteine) -> CYS (standard cysteine)
+                            normalized_seq = []
+                            for code in structure_seq:
+                                first_mon = gemmi.Entity.first_mon(code)
+                                if first_mon == "CYX":
+                                    normalized_seq.append("CYS")
+                                else:
+                                    normalized_seq.append(first_mon)
+                            
+                            # Convert normalized 3-letter codes to 1-letter amino acids
                             structure_seq_str = "".join([
-                                const.prot_token_to_letter.get(gemmi.Entity.first_mon(code), "X")
-                                for code in structure_seq
+                                const.prot_token_to_letter.get(code, "X")
+                                for code in normalized_seq
                             ])
                             click.echo(f"  Extracted sequence from structure: {len(structure_seq_str)} residues")
                             
