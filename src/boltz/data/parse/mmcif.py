@@ -570,17 +570,22 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
         If the alignment fails.
 
     """
-    # Defensive checks: ensure sequence is valid
-    if sequence is None:
-        msg = f"Empty sequence for entity {entity} chain {chain_id}"
-        logger.error(msg)
-        raise ValueError(msg)
-
-    # If sequence is a string representation like '[]' or empty, treat as invalid
-    if isinstance(sequence, str) and sequence.strip() in ("", "[]"):
-        msg = f"Invalid/empty sequence for entity {entity} chain {chain_id}: {sequence!r}"
-        logger.error(msg)
-        raise ValueError(msg)
+    # Defensive checks: ensure sequence is valid; if empty, derive from polymer residues
+    if sequence is None or (isinstance(sequence, str) and sequence.strip() in ("", "[]")):
+        # Build sequence from polymer residue names (three-letter codes)
+        try:
+            derived_seq = [res.name for res in polymer]
+            logger.warning(
+                "Empty or missing sequence provided for entity %s chain %s; deriving sequence from polymer residues (len=%d)",
+                entity,
+                chain_id,
+                len(derived_seq),
+            )
+            sequence = derived_seq
+        except Exception:
+            msg = f"Empty sequence for entity {entity} chain {chain_id} and failed to derive from polymer"
+            logger.error(msg)
+            raise ValueError(msg)
 
     # Log sequence summary
     try:
