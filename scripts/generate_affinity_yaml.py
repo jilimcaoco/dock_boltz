@@ -55,11 +55,18 @@ AA_MAP = {
     'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
     'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V',
     'MSE': 'M',  # Selenomethionine
+    'CYX': 'C',  # Disulfide-bonded cysteine (older PDB files)
+    'HID': 'H',  # Histidine (delta-protonated)
+    'HIE': 'H',  # Histidine (epsilon-protonated)
+    'HIP': 'H',  # Histidine (doubly protonated)
+    'SEP': 'S',  # Phosphoserine
+    'TPO': 'T',  # Phosphothreonine
+    'PTR': 'Y',  # Phosphotyrosine
 }
 
 
 def get_sequence_from_pdb(pdb_file: Path) -> Optional[str]:
-    """Extract protein sequence from PDB file."""
+    """Extract protein sequence from PDB file with normalization of non-standard residues."""
     if not HAS_BIOPYTHON:
         print("Warning: BioPython not available, cannot auto-extract sequence")
         print("Install with: pip install biopython")
@@ -70,12 +77,21 @@ def get_sequence_from_pdb(pdb_file: Path) -> Optional[str]:
         structure = parser.get_structure('protein', str(pdb_file))
         
         sequence = []
+        normalized_count = 0
+        unknown_residues = set()
+        
         for model in structure:
             for chain in model:
                 for residue in chain:
                     resname = residue.get_resname().strip()
                     if resname in AA_MAP:
                         sequence.append(AA_MAP[resname])
+                        # Track non-standard residues that were normalized
+                        if resname not in ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+                                          'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL']:
+                            normalized_count += 1
+                    else:
+                        unknown_residues.add(resname)
         
         if not sequence:
             print(f"Warning: Could not extract sequence from {pdb_file}")
@@ -83,6 +99,13 @@ def get_sequence_from_pdb(pdb_file: Path) -> Optional[str]:
         
         seq_str = "".join(sequence)
         print(f"Extracted sequence from {pdb_file.name}: {len(seq_str)} residues")
+        
+        if normalized_count > 0:
+            print(f"  Normalized {normalized_count} non-standard residues (CYX→C, MSE→M, etc.)")
+        
+        if unknown_residues:
+            print(f"  Warning: Skipped unknown residues: {', '.join(sorted(unknown_residues))}")
+        
         return seq_str
     except Exception as e:
         print(f"Warning: Error extracting sequence from {pdb_file}: {e}")
