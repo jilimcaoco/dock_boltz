@@ -125,26 +125,33 @@ def load_checkpoint(checkpoint_path: str, device: str = "cpu") -> dict:
 def load_mols() -> dict:
     """Load canonical molecules."""
     import tarfile
-    
+
     cache_dir = get_cache_path()
     mols_path = cache_dir / "mols.tar"
     mols_dir = cache_dir / "mols"
-    
+
     # Download if needed
     if not mols_path.exists():
         logger.info("Downloading canonical molecules...")
         download_checkpoint([MOL_URL], mols_path, "canonical molecules")
-    
-    # Extract if needed
-    if not mols_dir.exists():
+
+    # Extract if needed (also if no pkl files are present)
+    if not mols_dir.exists() or not any(mols_dir.rglob("*.pkl")):
         logger.info(f"Extracting molecules from {mols_path}")
         mols_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(mols_path, "r") as tar:
             tar.extractall(path=mols_dir)
         logger.info(f"Extracted molecules to {mols_dir}")
-    
-    # Load molecules from extracted directory
-    mols = load_canonicals(mols_dir)
+
+    # Find the directory that actually contains the molecule pickle files
+    pkl_paths = list(mols_dir.rglob("*.pkl"))
+    if not pkl_paths:
+        raise ValueError("No molecule .pkl files found after extraction; tarball may be corrupt or incomplete.")
+
+    mol_root = pkl_paths[0].parent
+
+    # Load molecules from discovered directory
+    mols = load_canonicals(mol_root)
     return mols
 
 
