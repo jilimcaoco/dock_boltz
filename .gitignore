@@ -164,5 +164,10 @@ cython_debug/
 # Boltz prediction outputs
 #   All result files generated from a boltz prediction call
 boltz_results_*/
+# YAML configs generated from docking results
+*_yaml_configs/
+*_yaml_configs_test/
+# Affinity prediction results
+*_affinity_results/
 # Docking results
 dock_results/
