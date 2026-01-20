@@ -1364,10 +1364,26 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 # Call parse_polymer directly with the loaded polymer
                 from boltz.data.parse.mmcif import parse_polymer as parse_polymer_mmcif
                 
+                # CRITICAL: Use the sequence directly from the polymer we just extracted
+                # Don't use normalized_seq_3l which may have been modified
+                polymer_seq_3l = []
+                for res in polymer:
+                    res_name = res.name.strip()
+                    # Apply same normalization
+                    residue_normalization_map = {
+                        "CYX": "CYS", "HID": "HIS", "HIE": "HIS", "HIP": "HIS",
+                        "MSE": "MET", "SEP": "SER", "TPO": "THR", "PTR": "TYR",
+                    }
+                    normalized_res = residue_normalization_map.get(res_name, res_name)
+                    polymer_seq_3l.append(normalized_res)
+                
+                print(f"DEBUG: Using polymer sequence directly (len={len(polymer_seq_3l)}): {polymer_seq_3l[:10]}")
+                print(f"DEBUG: Polymer residue count: {len(polymer)}")
+                
                 parsed_structure_chain = parse_polymer_mmcif(
                     polymer=polymer,
                     polymer_type=gemmi.PolymerType.PeptideL,
-                    sequence=normalized_seq_3l,
+                    sequence=polymer_seq_3l,  # Use sequence extracted from THIS polymer
                     chain_id=chain.name,
                     entity="A",
                     mols=ccd,
