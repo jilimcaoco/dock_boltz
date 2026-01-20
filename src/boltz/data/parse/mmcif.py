@@ -772,8 +772,9 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
         # Add residue to parsed list
         if res is not None:
-            orig_idx = res.seqid
-            orig_idx = str(orig_idx.num) + str(orig_idx.icode).strip()
+            # Normalize sequence numbering to start at 0 regardless of PDB residue numbering
+            # Keep original numbering only for debugging if needed; primary index is 0-based j
+            orig_idx = str(j)
         else:
             orig_idx = None
 
