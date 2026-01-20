@@ -6,6 +6,7 @@ Usage:
 """
 
 import logging
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,67 @@ from boltz.data.module.inferencev2 import Boltz2InferenceDataModule
 from boltz.model.models.affinity_predictor import AffinityPredictor
 
 logger = logging.getLogger(__name__)
+
+# Model checkpoint URLs
+BOLTZ2_URL_WITH_FALLBACK = [
+    "https://model-gateway.boltz.bio/boltz2_conf.ckpt",
+    "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_conf.ckpt",
+]
+
+BOLTZ2_AFFINITY_URL_WITH_FALLBACK = [
+    "https://model-gateway.boltz.bio/boltz2_aff.ckpt",
+    "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_aff.ckpt",
+]
+
+
+def get_cache_path() -> Path:
+    """Get the cache directory for model checkpoints."""
+    cache_dir = Path.home() / ".boltz"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def download_checkpoint(
+    urls: list[str],
+    output_path: Path,
+    description: str = "checkpoint",
+) -> Path:
+    """Download checkpoint from URLs with fallback.
+    
+    Parameters
+    ----------
+    urls : list[str]
+        List of URLs to try in order
+    output_path : Path
+        Where to save the checkpoint
+    description : str
+        Description for logging
+        
+    Returns
+    -------
+    Path
+        Path to the downloaded checkpoint
+    """
+    if output_path.exists():
+        logger.info(f"Found existing {description} at {output_path}")
+        return output_path
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    for i, url in enumerate(urls):
+        try:
+            logger.info(f"Downloading {description} from {url}")
+            urllib.request.urlretrieve(url, str(output_path))  # noqa: S310
+            logger.info(f"Successfully downloaded {description} to {output_path}")
+            return output_path
+        except Exception as e:  # noqa: BLE001
+            if i == len(urls) - 1:
+                msg = f"Failed to download {description} from all URLs. Last error: {e}"
+                raise RuntimeError(msg) from e
+            logger.warning(f"Failed to download from {url}, trying next URL...")
+            continue
+    
+    return output_path
 
 
 def load_config(config_path: str) -> dict:
@@ -52,9 +114,10 @@ def cli():
 )
 @click.option(
     "--checkpoint",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to model checkpoint",
+    required=False,
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to model checkpoint. If not provided, will download boltz2_aff.ckpt",
 )
 @click.option(
     "--device",
@@ -76,7 +139,7 @@ def cli():
 def predict(
     input: str,
     output: str,
-    checkpoint: str,
+    checkpoint: Optional[str],
     device: str,
     batch_size: int,
     recycling_steps: int,
@@ -101,6 +164,16 @@ def predict(
           binder: B
     ```
     """
+    # Download checkpoint if not provided
+    if checkpoint is None:
+        cache_dir = get_cache_path()
+        checkpoint_path = cache_dir / "boltz2_aff.ckpt"
+        checkpoint = str(download_checkpoint(
+            BOLTZ2_AFFINITY_URL_WITH_FALLBACK,
+            checkpoint_path,
+            description="Boltz-2 affinity checkpoint",
+        ))
+    
     logger.info(f"Loading checkpoint from {checkpoint}")
     ckpt = load_checkpoint(checkpoint, device=device)
 
