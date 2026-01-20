@@ -25,7 +25,6 @@ from rdkit import Chem
 from boltz.data.mol import load_canonicals
 from boltz.data.parse.yaml import parse_yaml
 from boltz.data.types import Manifest, Record
-from boltz.data.write.writer import BoltzAffinityWriter
 from boltz.model.models.affinity_predictor import AffinityPredictor
 from boltz.data.module.inferencev2 import Boltz2InferenceDataModule
 
@@ -354,18 +353,6 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
                 writer.writerow([cid, f"{affinity_value:.4f}", f"{affinity_prob:.4f}"])
 
     logger.info(f"Results saved to {csv_output}. Total predictions: {sum(len(r['complex_id']) for r in results)}")
-    
-    try:
-        writer = BoltzAffinityWriter(output_path=output_path)
-        for batch_result in results:
-            for i, cid in enumerate(batch_result["complex_id"]):
-                writer.save_affinity(
-                    complex_id=cid,
-                    affinity_value=float(batch_result["affinity_pred_value"][i, 0]),
-                    affinity_prob=float(batch_result["affinity_probability_binary"][i, 0]),
-                )
-    except Exception as e:
-        logger.warning(f"Could not save with BoltzAffinityWriter: {e}")
 
 
 if __name__ == "__main__":
