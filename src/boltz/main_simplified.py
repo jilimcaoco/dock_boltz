@@ -53,24 +53,43 @@ def infer_embedder_args_from_state_dict(state_dict: dict) -> dict:
     """
     embedder_args = {}
     
-    # Infer atom_s from embed_atom_features weight shape
+    # Infer atom_s from embed_atom_features weight shape (output dimension)
     if "input_embedder.atom_encoder.embed_atom_features.weight" in state_dict:
         atom_s = state_dict["input_embedder.atom_encoder.embed_atom_features.weight"].shape[0]
+        atom_feature_dim = state_dict["input_embedder.atom_encoder.embed_atom_features.weight"].shape[1]
         embedder_args["atom_s"] = atom_s
-        logger.debug(f"Inferred atom_s={atom_s} from checkpoint")
+        embedder_args["atom_feature_dim"] = atom_feature_dim
+        logger.debug(f"Inferred atom_s={atom_s}, atom_feature_dim={atom_feature_dim} from checkpoint")
     
-    # Infer atom_z from atom_encoder weights
-    if "input_embedder.atom_encoder.c_to_p_trans_k.1.weight" in state_dict:
-        atom_z = state_dict["input_embedder.atom_encoder.c_to_p_trans_k.1.weight"].shape[1]
+    # Infer atom_z from pairwise embedding weights (first dimension)
+    if "input_embedder.atom_encoder.embed_atompair_ref_pos.weight" in state_dict:
+        atom_z = state_dict["input_embedder.atom_encoder.embed_atompair_ref_pos.weight"].shape[0]
         embedder_args["atom_z"] = atom_z
         logger.debug(f"Inferred atom_z={atom_z} from checkpoint")
     
-    # Infer atom_encoder_depth from p_mlp layers
-    if "input_embedder.atom_encoder.p_mlp.1.weight" in state_dict:
-        # atom_encoder has p_mlp with multiple layers, estimate depth
-        embedder_args["atom_encoder_depth"] = 3
-        logger.debug(f"Set atom_encoder_depth=3 (estimated)")
+    # Infer atom_encoder_heads from atom_enc_proj_z.1.weight
+    # Shape should be [atom_encoder_depth * atom_encoder_heads, atom_z]
+    if "input_embedder.atom_enc_proj_z.1.weight" in state_dict:
+        proj_z_out_dim = state_dict["input_embedder.atom_enc_proj_z.1.weight"].shape[0]
+        # Assuming atom_encoder_depth is 3 (count p_mlp layers)
+        atom_encoder_depth = 3
+        atom_encoder_heads = proj_z_out_dim // atom_encoder_depth
+        embedder_args["atom_encoder_depth"] = atom_encoder_depth
+        embedder_args["atom_encoder_heads"] = atom_encoder_heads
+        logger.debug(f"Inferred atom_encoder_depth={atom_encoder_depth}, atom_encoder_heads={atom_encoder_heads} from checkpoint")
     
+    # Set default window sizes if not found (these are architectural constants)
+    if "atoms_per_window_queries" not in embedder_args:
+        embedder_args["atoms_per_window_queries"] = 32
+    
+    if "atoms_per_window_keys" not in embedder_args:
+        embedder_args["atoms_per_window_keys"] = 128
+    
+    # Activation checkpointing is typically False for inference
+    if "activation_checkpointing" not in embedder_args:
+        embedder_args["activation_checkpointing"] = False
+    
+    logger.debug(f"Full inferred embedder_args: {embedder_args}")
     return embedder_args
 
 
@@ -217,6 +236,11 @@ def predict(
     hparams = ckpt.get("hyper_parameters", {})
     state_dict = ckpt.get("state_dict", {})
     
+    # Validate checkpoint structure
+    if not state_dict:
+        msg = "Checkpoint does not contain 'state_dict'. Invalid checkpoint file."
+        raise ValueError(msg)
+    
     # Log checkpoint structure for debugging
     logger.debug(f"Checkpoint keys: {list(ckpt.keys())}")
     logger.debug(f"Hyperparameters keys: {list(hparams.keys())}")
@@ -234,6 +258,13 @@ def predict(
         inferred_embedder_args = infer_embedder_args_from_state_dict(state_dict)
         embedder_args = {**embedder_args, **inferred_embedder_args}
         logger.info(f"Inferred embedder args from checkpoint: {inferred_embedder_args}")
+        
+        # Validate critical parameters were inferred
+        required_params = ["atom_s", "atom_z", "atom_feature_dim", "atom_encoder_heads"]
+        missing = [p for p in required_params if p not in embedder_args]
+        if missing:
+            msg = f"Failed to infer required embedder parameters: {missing}. Checkpoint may be incompatible."
+            raise ValueError(msg)
     
     affinity_model_args = hparams.get("affinity_model_args", {})
     
@@ -257,7 +288,13 @@ def predict(
         affinity_ensemble=hparams.get("affinity_ensemble", False),
         affinity_mw_correction=hparams.get("affinity_mw_correction", True),
     )
-    model.load_state_dict(ckpt["state_dict"], strict=False)
+    # Load state dict with warnings about missing/unexpected keys
+    load_result = model.load_state_dict(ckpt["state_dict"], strict=False)
+    if load_result.missing_keys:
+        logger.warning(f"Missing keys when loading checkpoint: {load_result.missing_keys[:5]}...")
+    if load_result.unexpected_keys:
+        logger.warning(f"Unexpected keys in checkpoint: {load_result.unexpected_keys[:5]}...")
+    
     model = model.to(device)
     model.eval()
 
@@ -278,39 +315,56 @@ def predict(
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(predict_dataloader):
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                    for k, v in batch.items()}
+            try:
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
+                        for k, v in batch.items()}
 
-            # Get 3D coordinates from batch
-            coords = batch.get("coords")
-            if coords is None:
-                logger.error("Batch missing 'coords' field. Ensure your input includes 3D structures.")
+                # Get 3D coordinates from batch
+                coords = batch.get("coords")
+                if coords is None:
+                    logger.error(f"Batch {batch_idx} missing 'coords' field. Ensure your input includes 3D structures.")
+                    continue
+
+                # Remove singleton dimension if present
+                if coords.dim() == 4:
+                    coords = coords.squeeze(1)
+
+                # Run model
+                out = model(
+                    feats=batch,
+                    coords=coords,
+                    recycling_steps=recycling_steps,
+                )
+
+                # Extract results
+                batch_results = {
+                    "complex_id": batch.get("complex_id", [f"complex_{batch_idx}_0"]),
+                    "affinity_pred_value": out["affinity_pred_value"].cpu().numpy(),
+                    "affinity_probability_binary": out["affinity_probability_binary"].cpu().numpy(),
+                }
+                results.append(batch_results)
+
+                if (batch_idx + 1) % 10 == 0:
+                    logger.info(f"Processed {batch_idx + 1}/{len(predict_dataloader)} batches")
+                    
+            except Exception as e:
+                logger.error(f"Error processing batch {batch_idx}: {e}")
+                logger.debug(f"Batch keys: {list(batch.keys()) if isinstance(batch, dict) else 'not a dict'}")
+                # Continue with next batch instead of failing completely
                 continue
-
-            # Remove singleton dimension if present
-            if coords.dim() == 4:
-                coords = coords.squeeze(1)
-
-            # Run model
-            out = model(
-                feats=batch,
-                coords=coords,
-                recycling_steps=recycling_steps,
-            )
-
-            # Extract results
-            batch_results = {
-                "complex_id": batch.get("complex_id", [f"complex_{batch_idx}_0"]),
-                "affinity_pred_value": out["affinity_pred_value"].cpu().numpy(),
-                "affinity_probability_binary": out["affinity_probability_binary"].cpu().numpy(),
-            }
-            results.append(batch_results)
-
-            if (batch_idx + 1) % 10 == 0:
-                logger.info(f"Processed {batch_idx + 1}/{len(predict_dataloader)} batches")
 
     # Write results
     logger.info(f"Writing results to {output}")
+    
+    if not results:
+        logger.warning("No results to write. All batches may have failed or been skipped.")
+        # Still create an empty CSV with headers
+        import csv
+        with open(output, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["complex_id", "affinity_pred_value", "affinity_probability_binary"])
+        return
+    
     import csv
     import numpy as np
 
@@ -324,7 +378,7 @@ def predict(
                 affinity_prob = batch_result["affinity_probability_binary"][i, 0]
                 writer.writerow([cid, f"{affinity_value:.4f}", f"{affinity_prob:.4f}"])
 
-    logger.info(f"Results saved to {output}")
+    logger.info(f"Results saved to {output}. Total predictions: {sum(len(r['complex_id']) for r in results)}\")
 
 
 @cli.command()
