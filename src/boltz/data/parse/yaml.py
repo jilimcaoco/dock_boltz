@@ -5,7 +5,12 @@ from rdkit.Chem.rdchem import Mol
 
 from boltz.data.parse.schema import parse_boltz_schema
 from boltz.data.types import Target
+import logging
+import sys
+import traceback
+import linecache
 
+logger = logging.getLogger(__name__)
 
 def parse_yaml(
     path: Path,
@@ -61,8 +66,40 @@ def parse_yaml(
         The parsed target.
 
     """
-    with path.open("r") as file:
-        data = yaml.safe_load(file)
+    with path.open("r") as fp:
+        schema = yaml.safe_load(fp)
+    try:
+        return parse_boltz_schema(schema, ccd, mol_dir, boltz2=boltz2)
+    except IndexError as e:
+        # Find the last traceback frame where the IndexError occurred
+        tb = e.__traceback__
+        while tb.tb_next is not None:
+            tb = tb.tb_next
+        frame = tb.tb_frame
+        lineno = tb.tb_lineno
+        filename = frame.f_code.co_filename
+        code_line = linecache.getline(filename, lineno).strip()
 
-    name = path.stem
-    return parse_boltz_schema(name, data, ccd, mol_dir, boltz2)
+        # Collect small snapshot of locals
+        small_locals = {}
+        for k, v in frame.f_locals.items():
+            try:
+                small_locals[k] = repr(v)[:500]
+            except Exception:
+                small_locals[k] = f"<unrepr: {type(v).__name__}>"
+
+        logger.error(
+            "IndexError while parsing YAML %s: %s at %s:%d -> %s\nLocals snapshot: %s",
+            path,
+            e,
+            filename,
+            lineno,
+            code_line,
+            small_locals,
+        )
+
+        # Raise a new error with diagnostic info for the user
+        raise IndexError(
+            f"IndexError while parsing {path}: {e} at {filename}:{lineno} -> {code_line}. "
+            f"Locals keys: {list(small_locals.keys())}"
+        ) from e
