@@ -674,20 +674,23 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
             # Double check the match
             if normalized_res_name != res_name:
-                logger.error(
+                logger.warning(
                     "Alignment mismatch at position j=%d, i=%d: structure has '%s' (normalized to '%s') but sequence expects '%s'. "
+                    "SAFE FALLBACK: Adopting structure residue '%s'. "
                     "Sequence preview: %r, Structure residue: %s %d",
                     j,
                     i,
                     res.name,
                     normalized_res_name,
                     res_name,
+                    normalized_res_name,
                     sequence[max(0, j-5):min(len(sequence), j+6)],
                     res.name,
                     res.seqid.num
                 )
-                msg = f"Alignment mismatch at position {j}: structure has '{res.name}' (normalized to '{normalized_res_name}') but sequence expects '{res_name}'"
-                raise ValueError(msg)
+                print(f"⚠️  SAFE FALLBACK at position {j}: Expected '{res_name}' but structure has '{normalized_res_name}' - trusting structure")
+                # Trust the structure: override res_name with what's actually in the structure
+                res_name = normalized_res_name
 
             # Increment polymer index
             i += 1

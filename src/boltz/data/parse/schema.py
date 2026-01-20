@@ -1225,58 +1225,78 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                     msg = f"Structure file not found: {structure_path}"
                     raise ValueError(msg)
                 
-                # Load structure to extract actual sequence
+                # Load structure to extract actual sequence from polymer residues
                 click.echo(f"Loading protein structure from {structure_path}")
+                print(f"\n{'='*80}")
+                print(f"STRUCTURE-FIRST OVERRIDE: Building sequence from actual polymer residues")
                 temp_structure = gemmi.read_structure(str(structure_path))
                 temp_structure.setup_entities()
                 
-                # Extract sequence from first polymer entity
+                # Residue normalization map
+                residue_normalization_map = {
+                    "CYX": "CYS",  # Disulfide-bonded cysteine
+                    "HID": "HIS",  # Histidine delta-protonated
+                    "HIE": "HIS",  # Histidine epsilon-protonated
+                    "HIP": "HIS",  # Histidine doubly protonated
+                    "MSE": "MET",  # Selenomethionine
+                    "SEP": "SER",  # Phosphoserine
+                    "TPO": "THR",  # Phosphothreonine
+                    "PTR": "TYR",  # Phosphotyrosine
+                }
+                
+                # Extract sequence directly from polymer residues (not entity.full_sequence)
                 structure_seq = None
-                for entity in temp_structure.entities:
-                    if entity.entity_type.name == "Polymer" and entity.polymer_type.name == "PeptideL":
-                        structure_seq = entity.full_sequence
-                        if structure_seq:
-                            # Preprocess: normalize non-standard residue codes
+                for model in temp_structure:
+                    for chain in model:
+                        polymer = chain.get_polymer()
+                        if polymer:
+                            # Build normalized 3-letter sequence from actual residues
                             normalized_seq = []
-                            for code in structure_seq:
-                                first_mon = gemmi.Entity.first_mon(code)
-                                if first_mon == "CYX":
-                                    normalized_seq.append("CYS")
+                            for res in polymer:
+                                res_name = res.name.strip()
+                                # Normalize non-standard residues
+                                normalized_res = residue_normalization_map.get(res_name, res_name)
+                                normalized_seq.append(normalized_res)
+                            
+                            if normalized_seq:
+                                normalized_seq_3l = normalized_seq
+                                structure_seq = normalized_seq
+                                
+                                # Convert normalized 3-letter codes to 1-letter amino acids
+                                structure_seq_str = "".join([
+                                    const.prot_token_to_letter.get(code, "X")
+                                    for code in normalized_seq
+                                ])
+                                
+                                print(f"  ✓ Extracted {len(normalized_seq)} residues from polymer")
+                                print(f"  ✓ Normalized {sum(1 for r in [res.name for res in polymer] if r in residue_normalization_map)} non-standard residues")
+                                
+                                print(f"\nStructure sequence (3-letter, first 10): {normalized_seq[:10]}")
+                                print(f"Structure sequence (1-letter, length {len(structure_seq_str)}):")
+                                print(f"  {structure_seq_str[:100]}{'...' if len(structure_seq_str) > 100 else ''}")
+                                
+                                # Compare sequences
+                                if raw_seq != structure_seq_str:
+                                    print(f"\n⚠️  SEQUENCE MISMATCH DETECTED:")
+                                    print(f"  YAML length:      {len(raw_seq)}")
+                                    print(f"  Structure length: {len(structure_seq_str)}")
+                                    if len(raw_seq) == len(structure_seq_str):
+                                        # Find first difference
+                                        for i, (y, s) in enumerate(zip(raw_seq, structure_seq_str)):
+                                            if y != s:
+                                                print(f"  First diff at position {i}: YAML='{y}' vs Structure='{s}'")
+                                                print(f"    Context: ...{raw_seq[max(0,i-5):i+6]}...")
+                                                print(f"             ...{structure_seq_str[max(0,i-5):i+6]}...")
+                                                break
+                                    print(f"  ✓ USING STRUCTURE SEQUENCE (polymer residues) for alignment")
                                 else:
-                                    normalized_seq.append(first_mon)
-
-                            normalized_seq_3l = normalized_seq
-
-                            # Convert normalized 3-letter codes to 1-letter amino acids
-                            structure_seq_str = "".join([
-                                const.prot_token_to_letter.get(code, "X")
-                                for code in normalized_seq
-                            ])
-                            click.echo(f"  Extracted sequence from structure: {len(structure_seq_str)} residues")
-                            
-                            print(f"\nStructure sequence (length {len(structure_seq_str)}):")
-                            print(f"  {structure_seq_str[:100]}{'...' if len(structure_seq_str) > 100 else ''}")
-                            
-                            # Compare sequences
-                            if raw_seq != structure_seq_str:
-                                print(f"\n⚠️  SEQUENCE MISMATCH DETECTED:")
-                                print(f"  YAML length:      {len(raw_seq)}")
-                                print(f"  Structure length: {len(structure_seq_str)}")
-                                if len(raw_seq) == len(structure_seq_str):
-                                    # Find first difference
-                                    for i, (y, s) in enumerate(zip(raw_seq, structure_seq_str)):
-                                        if y != s:
-                                            print(f"  First diff at position {i}: YAML='{y}' vs Structure='{s}'")
-                                            print(f"    Context: ...{raw_seq[max(0,i-5):i+6]}...")
-                                            print(f"             ...{structure_seq_str[max(0,i-5):i+6]}...")
-                                            break
-                                print(f"  Using structure sequence for alignment")
-                            else:
-                                print(f"✓ Sequences match perfectly")
-                            
-                            # Override YAML sequence with structure sequence
-                            raw_seq = structure_seq_str
-                            entity_to_seq[entity_id] = raw_seq
+                                    print(f"✓ Sequences match perfectly")
+                                
+                                # Override YAML sequence with structure sequence
+                                raw_seq = structure_seq_str
+                                entity_to_seq[entity_id] = raw_seq
+                                break
+                    if structure_seq:
                         break
                 
                 if structure_seq is None:
