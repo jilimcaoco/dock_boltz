@@ -276,6 +276,7 @@ def generate_individual_yamls(
 ) -> int:
     """
     Generate individual YAML files for each pose.
+    One YAML file per compound using the filename as the compound name.
     Useful for parallel processing.
     
     Parameters
@@ -326,7 +327,7 @@ def generate_individual_yamls(
     
     # Generate YAML for each pose
     count = 0
-    for i, pose_file in enumerate(pose_files):
+    for pose_file in pose_files:
         if validate:
             if not validate_structure_file(pose_file):
                 print(f"  Skipping: {pose_file.name}")
@@ -341,13 +342,13 @@ def generate_individual_yamls(
                     protein_seq=protein_seq,
                     ligand_smiles=ligand_smiles,
                     pose_file=pose_file,
-                    pose_idx=i,
                 )
             ],
         }
         
-        # Write YAML
-        yaml_filename = output_dir / f"pose_{i:04d}_{pose_file.stem}.yaml"
+        # Write YAML using filename (without extension) as compound name
+        compound_name = pose_file.stem
+        yaml_filename = output_dir / f"{compound_name}.yaml"
         with open(yaml_filename, "w") as f:
             yaml.dump(yaml_config, f, default_flow_style=False, sort_keys=False)
         
