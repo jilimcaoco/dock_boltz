@@ -614,12 +614,23 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
     # Align full sequence to polymer residues
     # This is a simple way to handle all the different numbering schemes
+    
+    # Debug: show what we're aligning
+    polymer_residues = [res.name for res in polymer]
+    print(f"\nDEBUG ALIGNMENT:")
+    print(f"  Sequence to align (len={len(sequence)}): {sequence[:15]}...")
+    print(f"  Polymer residues (len={len(polymer_residues)}): {polymer_residues[:15]}...")
+    print(f"  First polymer residue number: {polymer[0].seqid.num if len(polymer) > 0 else 'N/A'}")
+    
     result = gemmi.align_sequence_to_polymer(
         sequence,
         polymer,
         polymer_type,
         gemmi.AlignmentScoring(),
     )
+    
+    print(f"  Alignment result: {result.match_string[:50]}...")
+    print(f"  Match string length: {len(result.match_string)}")
 
     # Get coordinates and masks
     i = 0

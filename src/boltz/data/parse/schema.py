@@ -1338,29 +1338,53 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                     msg = f"Structure file not found: {structure_path}"
                     raise ValueError(msg)
                 
-                # Load protein structure from PDB/mmCIF
-                if structure_path.suffix.lower() == ".pdb":
-                    # Pass normalized 3-letter sequence as override for structure parsing
-                    # Note: mol_dir should always be provided by parse_yaml caller
-                    print(f"DEBUG: Passing override sequence to parse_pdb (first 10): {normalized_seq_3l[:10]}")
-                    parsed_structure = parse_pdb(
-                        str(structure_path),
-                        mols=ccd,
-                        moldir=str(mol_dir) if mol_dir else None,
-                        override_first_chain_sequence=normalized_seq_3l
-                    )
-                elif structure_path.suffix.lower() in [".cif", ".mmcif"]:
-                    parsed_structure = parse_mmcif(
-                        str(structure_path),
-                        mols=ccd,
-                        moldir=str(mol_dir) if mol_dir else None,
-                        override_first_chain_sequence=normalized_seq_3l
-                    )
-                else:
-                    msg = f"Unsupported protein structure format: {structure_path.suffix}. Use .pdb or .cif/.mmcif"
+                # Reuse the structure we already loaded instead of reloading
+                # temp_structure was already loaded above for sequence extraction
+                print(f"DEBUG: Reusing already-loaded structure for parsing (avoiding reload)")
+                
+                # Parse the structure using the already-loaded gemmi structure
+                # Extract the first polymer chain to ensure we use the same one
+                first_polymer = None
+                for model in temp_structure:
+                    for chain in model:
+                        polymer = chain.get_polymer()
+                        if polymer:
+                            first_polymer = (chain, polymer)
+                            print(f"DEBUG: Using chain {chain.name} with {len(polymer)} residues")
+                            break
+                    if first_polymer:
+                        break
+                
+                if first_polymer is None:
+                    msg = f"No polymer chain found in {structure_path}"
                     raise ValueError(msg)
                 
-                click.echo(f"Loaded {len(parsed_structure.chains)} chain(s) from {structure_path}")
+                chain, polymer = first_polymer
+                
+                # Call parse_polymer directly with the loaded polymer
+                from boltz.data.parse.mmcif import parse_polymer as parse_polymer_mmcif
+                
+                parsed_structure_chain = parse_polymer_mmcif(
+                    polymer=polymer,
+                    polymer_type=gemmi.PolymerType.PeptideL,
+                    sequence=normalized_seq_3l,
+                    chain_id=chain.name,
+                    entity="A",
+                    mols=ccd,
+                    moldir=str(mol_dir) if mol_dir else None,
+                )
+                
+                # Wrap in ParsedStructure format
+                if parsed_structure_chain:
+                    from boltz.data.parse.a3m import ParsedStructure
+                    parsed_structure = ParsedStructure(
+                        chains=[parsed_structure_chain],
+                        bonds=[],
+                    )
+                else:
+                    parsed_structure = None
+                
+                click.echo(f"Parsed structure using pre-loaded polymer")
 
             # Convert sequence to tokens (for features)
             seq = [token_map.get(c, unk_token) for c in list(raw_seq)]
