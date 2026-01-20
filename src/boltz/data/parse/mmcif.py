@@ -595,6 +595,22 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
     # Ignore microheterogeneities (pick first)
     sequence = [gemmi.Entity.first_mon(item) for item in sequence]
+    
+    # Normalize non-standard residue codes (CYX -> CYS, HID/HIE/HIP -> HIS, etc.)
+    # This ensures alignment matches what was done during sequence extraction
+    residue_normalization_map = {
+        "CYX": "CYS",  # Disulfide-bonded cysteine
+        "HID": "HIS",  # Histidine delta-protonated
+        "HIE": "HIS",  # Histidine epsilon-protonated
+        "HIP": "HIS",  # Histidine doubly protonated
+        "MSE": "MET",  # Selenomethionine
+        "SEP": "SER",  # Phosphoserine
+        "TPO": "THR",  # Phosphothreonine
+        "PTR": "TYR",  # Phosphotyrosine
+    }
+    sequence = [
+        residue_normalization_map.get(res, res) for res in sequence
+    ]
 
     # Align full sequence to polymer residues
     # This is a simple way to handle all the different numbering schemes

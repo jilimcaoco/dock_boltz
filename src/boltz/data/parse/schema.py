@@ -1285,16 +1285,15 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             print(f"  {raw_seq[:100]}{'...' if len(raw_seq) > 100 else ''}")
             print(f"{'='*80}\n")
 
-            # Convert sequence to tokens
-            seq = [token_map.get(c, unk_token) for c in list(raw_seq)]
-
-            # Apply modifications
+            # Apply modifications BEFORE tokenization
+            raw_seq_list = list(raw_seq)
             for mod in items[0][entity_type].get("modifications", []):
                 code = mod["ccd"]
                 idx = mod["position"] - 1  # 1-indexed
-                seq[idx] = code
-
-            cyclic = items[0][entity_type].get("cyclic", False)
+                if idx < len(raw_seq_list):
+                    raw_seq_list[idx] = code
+            
+            raw_seq = "".join(raw_seq_list)
 
             # Now load full parsed structure if needed
             if structure_path is not None and entity_type == "protein":
@@ -1305,20 +1304,20 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 
                 # Load protein structure from PDB/mmCIF
                 if structure_path.suffix.lower() == ".pdb":
-                    # Pass YAML-derived token list as override for structure parsing
+                    # Pass raw 1-letter sequence (not tokenized) as override for structure parsing
                     # Note: mol_dir should always be provided by parse_yaml caller
                     parsed_structure = parse_pdb(
                         str(structure_path),
                         mols=ccd,
                         moldir=str(mol_dir) if mol_dir else None,
-                        override_first_chain_sequence=seq
+                        override_first_chain_sequence=raw_seq
                     )
                 elif structure_path.suffix.lower() in [".cif", ".mmcif"]:
                     parsed_structure = parse_mmcif(
                         str(structure_path),
                         mols=ccd,
                         moldir=str(mol_dir) if mol_dir else None,
-                        override_first_chain_sequence=seq
+                        override_first_chain_sequence=raw_seq
                     )
                 else:
                     msg = f"Unsupported protein structure format: {structure_path.suffix}. Use .pdb or .cif/.mmcif"
@@ -1326,9 +1325,12 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 
                 click.echo(f"Loaded {len(parsed_structure.chains)} chain(s) from {structure_path}")
 
+            # Convert sequence to tokens (for features)
+            seq = [token_map.get(c, unk_token) for c in list(raw_seq)]
+            
             # Parse a polymer (creates residues with sequence info)
             parsed_chain = parse_polymer(
-                sequence=seq,
+                sequence=list(raw_seq),  # Pass as 1-letter code string converted to list
                 raw_sequence=raw_seq,
                 entity=entity_id,
                 chain_type=chain_type,
