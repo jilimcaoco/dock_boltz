@@ -35,5 +35,5 @@ def parse_pdb(
             mols=mols,
             moldir=moldir,
             use_assembly=use_assembly,
-            compute_interfaces=compute_interfaces
+            compute_interfaces=compute_interfaces,
         )

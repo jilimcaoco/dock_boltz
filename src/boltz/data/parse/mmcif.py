@@ -842,6 +842,7 @@ def parse_mmcif(  # noqa: C901, PLR0915, PLR0912
     moldir: Optional[str] = None,
     use_assembly: bool = True,
     compute_interfaces: bool = True,
+    override_first_chain_sequence: Optional[list[str]] = None,
 ) -> ParsedStructure:
     """Parse a structure in MMCIF format.
 
@@ -919,6 +920,7 @@ def parse_mmcif(  # noqa: C901, PLR0915, PLR0912
 
     # Parse chains
     chains: list[ParsedChain] = []
+    polymer_counter = 0
     for raw_chain in structure[0].subchains():
         # Check chain type
         subchain_id = raw_chain.subchain_id()
@@ -936,15 +938,22 @@ def parse_mmcif(  # noqa: C901, PLR0915, PLR0912
                 continue
 
             # Add polymer if successful
+            # Allow overriding the first polymer sequence with YAML-provided tokens
+            seq_arg = (
+                override_first_chain_sequence
+                if (override_first_chain_sequence is not None and polymer_counter == 0)
+                else entity.full_sequence
+            )
             parsed_polymer = parse_polymer(
                 polymer=raw_chain,
                 polymer_type=entity.polymer_type,
-                sequence=entity.full_sequence,
+                sequence=seq_arg,
                 chain_id=subchain_id,
                 entity=entity.name,
                 mols=mols,
                 moldir=moldir,
             )
+            polymer_counter += 1
             if parsed_polymer is not None:
                 chains.append(parsed_polymer)
 

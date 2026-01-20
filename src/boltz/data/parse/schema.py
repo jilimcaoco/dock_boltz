@@ -1232,10 +1232,11 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 # Load protein structure from PDB/mmCIF
                 if structure_path.suffix.lower() == ".pdb":
                     click.echo(f"Loading protein structure from {structure_path}")
-                    parsed_structure = parse_pdb(structure_path)
+                    # Pass YAML-derived token list as override for structure parsing
+                    parsed_structure = parse_pdb(structure_path, override_first_chain_sequence=seq)
                 elif structure_path.suffix.lower() in [".cif", ".mmcif"]:
                     click.echo(f"Loading protein structure from {structure_path}")
-                    parsed_structure = parse_mmcif(structure_path)
+                    parsed_structure = parse_mmcif(structure_path, override_first_chain_sequence=seq)
                 else:
                     msg = f"Unsupported protein structure format: {structure_path.suffix}. Use .pdb or .cif/.mmcif"
                     raise ValueError(msg)
