@@ -154,12 +154,12 @@ def generate_yaml_single_pose(
     """Generate YAML sequence entry for a single pose."""
     return {
         "protein": {
-            "id": ["A"],
+            "id": "A",
             "sequence": protein_seq,
             "structure_path": str(protein_pdb),
         },
         "ligand": {
-            "id": ["B"],
+            "id": "B",
             "smiles": ligand_smiles,
             "structure_path": str(pose_file),
         },
