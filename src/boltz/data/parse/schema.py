@@ -1014,11 +1014,23 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     # Disable rdkit warnings
     blocker = rdBase.BlockLogs()  # noqa: F841
 
+    logger.info("Parsing schema '%s' (version=%s)", name, version)
+    seqs = schema.get("sequences", [])
+    logger.info("Found %d sequence entries in schema", len(seqs))
+
     # First group items that have the same type, sequence and modifications
     items_to_group = {}
     chain_name_to_entity_type = {}
 
-    for item in schema["sequences"]:
+    for seq_idx, item in enumerate(schema["sequences"]):
+        # Log small preview of each item for diagnostics
+        try:
+            preview = {k: (v if isinstance(v, (str, int)) else str(list(v.keys())[:3]) if isinstance(v, dict) else repr(v)[:200]) for k, v in item.items()}
+        except Exception:
+            preview = repr(item)[:200]
+        logger.debug("Schema sequence[%d]: %s", seq_idx, preview)
+
+        # proceed as before
         # Get entity type
         entity_type = next(iter(item.keys())).lower()
         if entity_type not in {"protein", "dna", "rna", "ligand"}:
@@ -1105,6 +1117,12 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
         except Exception as e:
             logger.error("Failed to determine entity_type for items (group index %d). items: %r", entity_id, items, exc_info=True)
             raise
+        # Log the first item of the group (truncated) for debugging
+        try:
+            first_preview = repr(items[0])[:500]
+        except Exception:
+            first_preview = "<unrepr>"
+        logger.debug("Processing group %d: entity_type=%s, first_item_preview=%s", entity_id, entity_type, first_preview)
 
         # Get ids
         ids = []

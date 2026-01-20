@@ -582,6 +582,12 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
         logger.error(msg)
         raise ValueError(msg)
 
+    # Log sequence summary
+    try:
+        logger.debug("parse_polymer: entity=%s chain=%s seq_len=%d seq_preview=%s", entity, chain_id, len(sequence), repr(sequence)[:200])
+    except Exception:
+        logger.debug("parse_polymer: entity=%s chain=%s seq_preview=<unrepr>", entity, chain_id)
+
     # Ignore microheterogeneities (pick first)
     sequence = [gemmi.Entity.first_mon(item) for item in sequence]
 
@@ -599,8 +605,20 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
     ref_res = set(const.tokens)
     parsed = []
     for j, match in enumerate(result.match_string):
-        # Get residue name from sequence
-        res_name = sequence[j]
+        # Defensive capture: ensure indexing won't fail
+        try:
+            # Get residue name from sequence
+            res_name = sequence[j]
+        except IndexError:
+            logger.error(
+                "IndexError in parse_polymer: j=%d, len(sequence)=%d, match_string_len=%d, sequence_preview=%r, match_string_preview=%r",
+                j,
+                len(sequence),
+                len(result.match_string),
+                repr(sequence)[:200],
+                repr(result.match_string)[:200],
+            )
+            raise
 
         # Check if we have a match in the structure
         res = None
