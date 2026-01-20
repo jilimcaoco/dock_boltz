@@ -20,6 +20,9 @@ from boltz.data import const
 from boltz.data.mol import load_molecules
 from boltz.data.parse.mmcif import parse_mmcif
 from boltz.data.parse.pdb import parse_pdb
+import logging
+
+logger = logging.getLogger(__name__)
 
 from boltz.data.types import (
     AffinityInfo,
@@ -1084,9 +1087,24 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     is_msa_custom = False
     is_msa_auto = False
     ligand_id = 1
+    # Debug: show grouped keys and sizes to help track down empty groups
+    try:
+        logger.debug("items_to_group keys=%s", [(k, len(v)) for k, v in items_to_group.items()])
+    except Exception:
+        logger.debug("Could not list items_to_group (non-serializable contents)")
+
     for entity_id, items in enumerate(items_to_group.values()):
-        # Get entity type and sequence
-        entity_type = next(iter(items[0].keys())).lower()
+        # Defensive check: ensure items list is not empty
+        if not items:
+            logger.error("Empty items list encountered for group index %d. Full items_to_group dump: %r", entity_id, items_to_group)
+            raise ValueError(f"Empty items group encountered while parsing YAML (group index {entity_id}). See logs for items_to_group dump.")
+
+        # Get entity type and sequence (log on failure)
+        try:
+            entity_type = next(iter(items[0].keys())).lower()
+        except Exception as e:
+            logger.error("Failed to determine entity_type for items (group index %d). items: %r", entity_id, items, exc_info=True)
+            raise
 
         # Get ids
         ids = []
