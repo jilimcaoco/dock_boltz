@@ -68,8 +68,9 @@ def parse_yaml(
     """
     with path.open("r") as fp:
         schema = yaml.safe_load(fp)
+    name = path.stem
     try:
-        return parse_boltz_schema(schema, ccd, mol_dir, boltz2=boltz2)
+        return parse_boltz_schema(name, schema, ccd, mol_dir, boltz_2=boltz2)
     except IndexError as e:
         # Find the last traceback frame where the IndexError occurred
         tb = e.__traceback__
