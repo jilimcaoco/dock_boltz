@@ -13,6 +13,7 @@ Usage:
 
 import logging
 import pickle
+import tarfile
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -123,16 +124,27 @@ def load_checkpoint(checkpoint_path: str, device: str = "cpu") -> dict:
 
 def load_mols() -> dict:
     """Load canonical molecules."""
+    import tarfile
+    
     cache_dir = get_cache_path()
     mols_path = cache_dir / "mols.tar"
+    mols_dir = cache_dir / "mols"
     
     # Download if needed
     if not mols_path.exists():
         logger.info("Downloading canonical molecules...")
         download_checkpoint([MOL_URL], mols_path, "canonical molecules")
     
-    # Load molecules
-    mols = load_canonicals(mols_path)
+    # Extract if needed
+    if not mols_dir.exists():
+        logger.info(f"Extracting molecules from {mols_path}")
+        mols_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(mols_path, "r") as tar:
+            tar.extractall(path=mols_dir)
+        logger.info(f"Extracted molecules to {mols_dir}")
+    
+    # Load molecules from extracted directory
+    mols = load_canonicals(mols_dir)
     return mols
 
 
