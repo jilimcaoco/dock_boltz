@@ -1,14 +1,8 @@
 """
-Simplified CLI for affinity prediction with full feature preparation.
-
-This module provides a complete pipeline for affinity prediction that includes:
-- Checkpoint loading with automatic dimension inference
-- YAML configuration parsing
-- Feature preparation from sequences and 3D structures
-- Model inference
+Full affinity prediction pipeline with feature preparation.
 
 Usage:
-    python -m boltz.main_simplified predict --input config.yaml --output results.csv --checkpoint model.ckpt
+    python -m boltz.main_affinity predict --input config.yaml --output results.csv --checkpoint model.ckpt
 """
 
 import logging
@@ -28,6 +22,7 @@ from boltz.data.types import Manifest, Record
 from boltz.data.write.writer import BoltzAffinityWriter
 from boltz.model.models.affinity_predictor import AffinityPredictor
 from boltz.data.module.inferencev2 import Boltz2InferenceDataModule
+from pytorch_lightning import Trainer
 
 logger = logging.getLogger(__name__)
 
@@ -144,15 +139,61 @@ def cli():
 
 
 @cli.command()
-@click.option("--input", required=True, type=click.Path(exists=True), help="Input YAML config or directory of configs")
-@click.option("--output", required=True, type=click.Path(), help="Output directory for results")
-@click.option("--checkpoint", required=False, type=click.Path(exists=False), default=None, help="Path to model checkpoint")
-@click.option("--device", default="cuda" if torch.cuda.is_available() else "cpu", help="Device to use (cuda/cpu)")
-@click.option("--batch-size", default=1, type=int, help="Batch size for inference")
-@click.option("--num-workers", default=0, type=int, help="Number of workers for data loading")
-@click.option("--recycling-steps", default=0, type=int, help="Number of recycling steps for pairformer")
-def predict(input: str, output: str, checkpoint: Optional[str], device: str, batch_size: int, num_workers: int, recycling_steps: int):
-    """Predict binding affinity for protein-ligand complexes."""
+@click.option(
+    "--input",
+    required=True,
+    type=click.Path(exists=True),
+    help="Input YAML config or directory of configs",
+)
+@click.option(
+    "--output",
+    required=True,
+    type=click.Path(),
+    help="Output directory for results",
+)
+@click.option(
+    "--checkpoint",
+    required=False,
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to model checkpoint. If not provided, will download boltz2_aff.ckpt",
+)
+@click.option(
+    "--device",
+    default="cuda" if torch.cuda.is_available() else "cpu",
+    help="Device to use (cuda/cpu)",
+)
+@click.option(
+    "--batch-size",
+    default=1,
+    type=int,
+    help="Batch size for inference",
+)
+@click.option(
+    "--num-workers",
+    default=0,
+    type=int,
+    help="Number of workers for data loading",
+)
+@click.option(
+    "--recycling-steps",
+    default=0,
+    type=int,
+    help="Number of recycling steps for pairformer",
+)
+def predict(
+    input: str,
+    output: str,
+    checkpoint: Optional[str],
+    device: str,
+    batch_size: int,
+    num_workers: int,
+    recycling_steps: int,
+):
+    """Predict binding affinity for protein-ligand complexes.
+
+    Input should be a YAML config or directory containing YAML configs.
+    """
     # Setup output directory
     output_path = Path(output)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -161,7 +202,11 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
     if checkpoint is None:
         cache_dir = get_cache_path()
         checkpoint_path = cache_dir / "boltz2_aff.ckpt"
-        checkpoint = str(download_checkpoint(BOLTZ2_AFFINITY_URL_WITH_FALLBACK, checkpoint_path, description="Boltz-2 affinity checkpoint"))
+        checkpoint = str(download_checkpoint(
+            BOLTZ2_AFFINITY_URL_WITH_FALLBACK,
+            checkpoint_path,
+            description="Boltz-2 affinity checkpoint",
+        ))
     
     logger.info(f"Loading checkpoint from {checkpoint}")
     ckpt = load_checkpoint(checkpoint, device=device)
@@ -181,9 +226,11 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
     # Initialize model
     logger.info("Initializing affinity predictor")
     
+    # Prepare affinity_model_args with both pairformer and transformer args
     token_s = hparams.get("token_s", 384)
     token_z = hparams.get("token_z", 128)
     
+    # Always infer from state_dict to ensure we get the correct dimensions
     inferred_embedder_args = infer_embedder_args_from_state_dict(state_dict)
     embedder_args = hparams.get("embedder_args", {})
     embedder_args = {**embedder_args, **inferred_embedder_args}
@@ -197,6 +244,8 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
         raise ValueError(msg)
     
     affinity_model_args = hparams.get("affinity_model_args", {})
+    
+    # Ensure transformer_args exists in affinity_model_args
     if "transformer_args" not in affinity_model_args:
         affinity_model_args["transformer_args"] = {}
     if "token_s" not in affinity_model_args["transformer_args"]:
@@ -216,6 +265,7 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
         affinity_mw_correction=hparams.get("affinity_mw_correction", True),
     )
     
+    # Load state dict with warnings about missing/unexpected keys
     load_result = model.load_state_dict(ckpt["state_dict"], strict=False)
     if load_result.missing_keys:
         logger.warning(f"Missing keys when loading checkpoint: {load_result.missing_keys[:5]}...")
@@ -264,8 +314,10 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
     for yaml_file in yaml_files:
         try:
             logger.info(f"Parsing {yaml_file.name}")
+            # Parse YAML to get target structure
             target = parse_yaml(yaml_file, mols, mol_dir, boltz2=True)
             records.append(target.record)
+            
             logger.debug(f"Successfully parsed {yaml_file.name}: {target.record.id}")
         except Exception as e:
             logger.warning(f"Failed to parse {yaml_file.name}: {e}")
@@ -300,18 +352,27 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
     with torch.no_grad():
         for batch_idx, batch in enumerate(predict_dataloader):
             try:
-                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
+                        for k, v in batch.items()}
 
+                # Get 3D coordinates from batch
                 coords = batch.get("coords")
                 if coords is None:
                     logger.error(f"Batch {batch_idx} missing 'coords' field. Ensure your input includes 3D structures.")
                     continue
 
+                # Remove singleton dimension if present
                 if coords.dim() == 4:
                     coords = coords.squeeze(1)
 
-                out = model(feats=batch, coords=coords, recycling_steps=recycling_steps)
+                # Run model
+                out = model(
+                    feats=batch,
+                    coords=coords,
+                    recycling_steps=recycling_steps,
+                )
 
+                # Extract results
                 batch_results = {
                     "complex_id": batch.get("complex_id", [f"complex_{batch_idx}_0"]),
                     "affinity_pred_value": out["affinity_pred_value"].cpu().numpy(),
@@ -332,13 +393,8 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
     
     if not results:
         logger.warning("No results to write. All batches may have failed or been skipped.")
-        import csv
-        csv_output = output_path / "affinity_predictions.csv"
-        with open(csv_output, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["complex_id", "affinity_pred_value", "affinity_probability_binary"])
-        return
     
+    # Write CSV results
     import csv
     import numpy as np
 
@@ -355,6 +411,7 @@ def predict(input: str, output: str, checkpoint: Optional[str], device: str, bat
 
     logger.info(f"Results saved to {csv_output}. Total predictions: {sum(len(r['complex_id']) for r in results)}")
     
+    # Also save using BoltzAffinityWriter if available
     try:
         writer = BoltzAffinityWriter(output_path=output_path)
         for batch_result in results:
