@@ -8,8 +8,8 @@ import torch
 
 from boltz.data import const
 from boltz.data.pad import pad_dim
-from boltz.model.loss.confidence import lddt_dist
-from boltz.model.loss.validation import weighted_minimum_rmsd_single
+from boltz.model.modules.confidence import lddt_dist
+from boltz.model.modules.validation import weighted_minimum_rmsd_single
 
 
 def convert_atom_name(name: str) -> tuple[int, int, int, int]:
