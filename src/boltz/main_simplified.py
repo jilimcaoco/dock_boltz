@@ -254,17 +254,21 @@ def predict(
     
     # Extract embedder_args from checkpoint, or infer from state_dict
     embedder_args = hparams.get("embedder_args", {})
-    if not embedder_args or "atom_s" not in embedder_args:
-        inferred_embedder_args = infer_embedder_args_from_state_dict(state_dict)
-        embedder_args = {**embedder_args, **inferred_embedder_args}
-        logger.info(f"Inferred embedder args from checkpoint: {inferred_embedder_args}")
-        
-        # Validate critical parameters were inferred
-        required_params = ["atom_s", "atom_z", "atom_feature_dim", "atom_encoder_heads"]
-        missing = [p for p in required_params if p not in embedder_args]
-        if missing:
-            msg = f"Failed to infer required embedder parameters: {missing}. Checkpoint may be incompatible."
-            raise ValueError(msg)
+    
+    # Always infer from state_dict to ensure we get the correct dimensions
+    # This handles cases where hparams has incomplete or default values
+    inferred_embedder_args = infer_embedder_args_from_state_dict(state_dict)
+    
+    # Prefer inferred values over hparams (inferred values are ground truth from weights)
+    embedder_args = {**embedder_args, **inferred_embedder_args}
+    logger.info(f"Inferred embedder args from checkpoint: {inferred_embedder_args}")
+    
+    # Validate critical parameters were inferred
+    required_params = ["atom_s", "atom_z", "atom_feature_dim", "atom_encoder_heads"]
+    missing = [p for p in required_params if p not in embedder_args]
+    if missing:
+        msg = f"Failed to infer required embedder parameters: {missing}. Checkpoint may be incompatible."
+        raise ValueError(msg)
     
     affinity_model_args = hparams.get("affinity_model_args", {})
     
