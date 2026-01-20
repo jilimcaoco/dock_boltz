@@ -73,7 +73,19 @@ class AffinityPredictor(nn.Module):
         self.affinity_mw_correction = affinity_mw_correction
 
         # Input embeddings
-        embedder_args = embedder_args or {}
+        # Default parameters for InputEmbedder
+        default_embedder_args = {
+            "atom_s": 128,
+            "atom_z": 128,
+            "atoms_per_window_queries": 32,
+            "atoms_per_window_keys": 128,
+            "atom_feature_dim": 128,
+            "atom_encoder_depth": 3,
+            "atom_encoder_heads": 4,
+            "activation_checkpointing": False,
+        }
+        # Merge user-provided args with defaults
+        embedder_args = {**default_embedder_args, **(embedder_args or {})}
         self.input_embedder = InputEmbedder(
             token_s=token_s,
             token_z=token_z,
