@@ -9,6 +9,9 @@ from rdkit import rdBase
 from rdkit.Chem import AllChem
 from rdkit.Chem.rdchem import Mol
 from sklearn.neighbors import KDTree
+import logging
+
+logger = logging.getLogger(__name__)
 
 from boltz.data import const
 from boltz.data.mol import load_molecules
@@ -567,6 +570,18 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
         If the alignment fails.
 
     """
+    # Defensive checks: ensure sequence is valid
+    if sequence is None:
+        msg = f"Empty sequence for entity {entity} chain {chain_id}"
+        logger.error(msg)
+        raise ValueError(msg)
+
+    # If sequence is a string representation like '[]' or empty, treat as invalid
+    if isinstance(sequence, str) and sequence.strip() in ("", "[]"):
+        msg = f"Invalid/empty sequence for entity {entity} chain {chain_id}: {sequence!r}"
+        logger.error(msg)
+        raise ValueError(msg)
+
     # Ignore microheterogeneities (pick first)
     sequence = [gemmi.Entity.first_mon(item) for item in sequence]
 
