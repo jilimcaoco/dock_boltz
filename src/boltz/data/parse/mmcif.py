@@ -634,37 +634,54 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
             res = polymer[i]
             name_to_atom = {a.name.upper(): a for a in res}
 
+            # Normalize structure residue name (CYX -> CYS, HID/HIE/HIP -> HIS, etc.)
+            normalized_res_name = res.name
+            residue_normalization_map = {
+                "CYX": "CYS",  # Disulfide-bonded cysteine
+                "HID": "HIS",  # Histidine delta-protonated
+                "HIE": "HIS",  # Histidine epsilon-protonated
+                "HIP": "HIS",  # Histidine doubly protonated
+                "MSE": "MET",  # Selenomethionine (already handled below, but include for consistency)
+                "SEP": "SER",  # Phosphoserine
+                "TPO": "THR",  # Phosphothreonine
+                "PTR": "TYR",  # Phosphotyrosine
+            }
+            if normalized_res_name in residue_normalization_map:
+                normalized_res_name = residue_normalization_map[normalized_res_name]
+
             # Double check the match
-            if res.name != res_name:
+            if normalized_res_name != res_name:
                 logger.error(
-                    "Alignment mismatch at position j=%d, i=%d: structure has '%s' but sequence expects '%s'. "
+                    "Alignment mismatch at position j=%d, i=%d: structure has '%s' (normalized to '%s') but sequence expects '%s'. "
                     "Sequence preview: %r, Structure residue: %s %d",
                     j,
                     i,
                     res.name,
+                    normalized_res_name,
                     res_name,
                     sequence[max(0, j-5):min(len(sequence), j+6)],
                     res.name,
                     res.seqid.num
                 )
-                msg = f"Alignment mismatch at position {j}: structure has '{res.name}' but sequence expects '{res_name}'"
+                msg = f"Alignment mismatch at position {j}: structure has '{res.name}' (normalized to '{normalized_res_name}') but sequence expects '{res_name}'"
                 raise ValueError(msg)
 
             # Increment polymer index
             i += 1
 
         # Map MSE to MET, put the selenium atom in the sulphur column
-        if res_name == "MSE":
+        if normalized_res_name == "MSE":
+            normalized_res_name = "MET"
             res_name = "MET"
             if "SE" in name_to_atom:
                 name_to_atom["SD"] = name_to_atom["SE"]
 
         # Handle non-standard residues
-        elif res_name not in ref_res:
-            modified_mol = get_mol(res_name, mols, moldir)
+        elif normalized_res_name not in ref_res:
+            modified_mol = get_mol(normalized_res_name, mols, moldir)
             if modified_mol is not None:
                 residue = parse_ccd_residue(
-                    name=res_name,
+                    name=normalized_res_name,
                     ref_mol=modified_mol,
                     res_idx=j,
                     gemmi_mol=res,
@@ -673,15 +690,15 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
                 parsed.append(residue)
                 continue
             else:  # noqa: RET507
-                res_name = "UNK"
+                normalized_res_name = "UNK"
 
         # Load regular residues
-        ref_mol = get_mol(res_name, mols, moldir)
+        ref_mol = get_mol(normalized_res_name, mols, moldir)
         ref_mol = AllChem.RemoveHs(ref_mol, sanitize=False)
 
         # Only use reference atoms set in constants
         ref_name_to_atom = {a.GetProp("name"): a for a in ref_mol.GetAtoms()}
-        ref_atoms = [ref_name_to_atom[a] for a in const.ref_atoms[res_name]]
+        ref_atoms = [ref_name_to_atom[a] for a in const.ref_atoms[normalized_res_name]]
 
         # Iterate, always in the same order
         atoms: list[ParsedAtom] = []
@@ -713,7 +730,7 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
 
         # Fix naming errors in arginine residues where NH2 is
         # incorrectly assigned to be closer to CD than NH1
-        if (res is not None) and (res_name == "ARG"):
+        if (res is not None) and (normalized_res_name == "ARG"):
             ref_atoms: list[str] = const.ref_atoms["ARG"]
             cd = atoms[ref_atoms.index("CD")]
             nh1 = atoms[ref_atoms.index("NH1")]
