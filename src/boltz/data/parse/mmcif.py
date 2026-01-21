@@ -629,6 +629,11 @@ def parse_polymer(  # noqa: C901, PLR0915, PLR0912
     print(f"  {polymer_residues}")
     print(f"{'='*80}\n")
     
+    if sequence == polymer_residues:
+        print("  Sequences match exactly, skipping alignment step.")
+        result = gemmi.AlignmentResult()
+        result.match_string = "|" * len(sequence)
+
     result = gemmi.align_sequence_to_polymer(
         sequence,
         polymer,
